@@ -15,6 +15,10 @@ EXTERN TranslateMessage : PROC
 EXTERN DispatchMessageW : PROC
 EXTERN PostQuitMessage : PROC
 EXTERN ExitProcess : PROC
+EXTERN GetCommandLineW : PROC
+EXTERN CreateFileW : PROC
+EXTERN WriteFile : PROC
+EXTERN CloseHandle : PROC
 
 ; Global state
 g_hInstance QWORD 0

@@ -6,8 +6,6 @@ RenderMarkdownToRtf PROC
     ; rdx = text length in wide chars
     ; r8 = theme index
     ; Returns: rax = RTF buffer (allocated on heap) or NULL
-    ;
-    ; Stub: just return NULL for now
 
     xor eax, eax
     ret
