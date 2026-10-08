@@ -43,22 +43,42 @@ MainWndCreate PROC FRAME
     mov rcx, rax
     call RegisterClassExW
 
+    ; Check if class registration succeeded
+    test eax, eax
+    jz mwc_fail
+
     ; Create window
-    xor ecx, ecx                ; exStyle
+    ; Stack layout for CreateWindowExW:
+    ; [rsp+0-31]   = shadow space (32 bytes)
+    ; [rsp+32]     = x (CW_USEDEFAULT)
+    ; [rsp+40]     = y (CW_USEDEFAULT)
+    ; [rsp+48]     = nWidth (CW_USEDEFAULT)
+    ; [rsp+56]     = nHeight (CW_USEDEFAULT)
+    ; [rsp+64]     = hWndParent (NULL)
+    ; [rsp+72]     = hMenu (NULL)
+    ; [rsp+80]     = hInstance
+    ; [rsp+88]     = lpParam (NULL)
+
+    xor ecx, ecx                ; exStyle = 0
     lea rdx, [szMainClassName]
     lea r8, [szWindowTitle]
-    mov r9d, 0CF0000h          ; WS_OVERLAPPEDWINDOW
+    mov r9d, 0CF0000h          ; WS_OVERLAPPEDWINDOW | WS_VISIBLE
 
-    sub rsp, 32
-    mov DWORD PTR [rsp], 080000000h  ; x
-    mov DWORD PTR [rsp + 4], 080000000h  ; y
-    mov DWORD PTR [rsp + 8], 080000000h  ; width
-    mov DWORD PTR [rsp + 12], 080000000h ; height
-    mov QWORD PTR [rsp + 16], 0     ; hWndParent
-    mov QWORD PTR [rsp + 24], 0     ; hMenu
+    sub rsp, 96                 ; shadow space + 6 stack params
+
+    ; Set window creation parameters
+    mov DWORD PTR [rsp + 32], 080000000h  ; x = CW_USEDEFAULT
+    mov DWORD PTR [rsp + 40], 080000000h  ; y = CW_USEDEFAULT
+    mov DWORD PTR [rsp + 48], 080000000h  ; nWidth = CW_USEDEFAULT
+    mov DWORD PTR [rsp + 56], 080000000h  ; nHeight = CW_USEDEFAULT
+    mov QWORD PTR [rsp + 64], 0           ; hWndParent = NULL
+    mov QWORD PTR [rsp + 72], 0           ; hMenu = NULL
+    mov rax, QWORD PTR [g_hInstance]
+    mov QWORD PTR [rsp + 80], rax         ; hInstance
+    mov QWORD PTR [rsp + 88], 0           ; lpParam = NULL
 
     call CreateWindowExW
-    add rsp, 32
+    add rsp, 96
 
     ; Save hwnd
     mov QWORD PTR [r12], rax
@@ -71,6 +91,12 @@ MainWndCreate PROC FRAME
     mov rcx, QWORD PTR [r12]
     call UpdateWindow
 
+    jmp mwc_done
+
+mwc_fail:
+    mov QWORD PTR [r12], 0      ; return NULL on failure
+
+mwc_done:
     pop r12
     pop rbx
     mov rsp, rbp

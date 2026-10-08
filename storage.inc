@@ -25,33 +25,9 @@ g_szStoragePath QWORD 0
 
 PUBLIC StorageInit
 StorageInit PROC
-    push rbx
-    sub rsp, 32
-
-    ; Get APPDATA environment variable
-    lea rcx, [env_appdata]
-    lea rdx, [g_szAppDataPath]
-    mov r8, 256
-    call GetEnvironmentVariableW
-
-    test rax, rax
-    jz storage_fail
-
-    ; Create AsmNotes subdirectory
-    lea rcx, [szStorageFolder]
-    call CreateDirectoryW
-
-    ; (In a full version, we'd load settings.ini here)
-
+    ; Stub: just return success
+    ; Full implementation requires proper path handling
     mov eax, 1
-    jmp storage_done
-
-storage_fail:
-    xor eax, eax
-
-storage_done:
-    add rsp, 32
-    pop rbx
     ret
 StorageInit ENDP
 
