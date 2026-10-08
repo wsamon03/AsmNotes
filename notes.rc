@@ -1,0 +1,59 @@
+#include "winconst.h"
+
+IDR_MAINMENU MENU
+BEGIN
+    POPUP "&File"
+    BEGIN
+        MENUITEM "E&xit\tAlt+F4", IDM_EXIT
+    END
+    POPUP "&Edit"
+    BEGIN
+        MENUITEM "&Undo\tCtrl+Z", IDM_UNDO
+        MENUITEM "&Redo\tCtrl+Y", IDM_REDO
+        MENUITEM "", 0, GRAYED
+        MENUITEM "Cu&t\tCtrl+X", IDM_CUT
+        MENUITEM "&Copy\tCtrl+C", IDM_COPY
+        MENUITEM "&Paste\tCtrl+V", IDM_PASTE
+    END
+    POPUP "&View"
+    BEGIN
+        POPUP "&Theme"
+        BEGIN
+            MENUITEM "&Paper", IDM_THEME_0
+            MENUITEM "&Slate", IDM_THEME_1
+            MENUITEM "&Sepia", IDM_THEME_2
+            MENUITEM "S&olarized Dark", IDM_THEME_3
+            MENUITEM "&Forest", IDM_THEME_4
+            MENUITEM "&Midnight", IDM_THEME_5
+        END
+    END
+    POPUP "&Note"
+    BEGIN
+        MENUITEM "&New Tab\tCtrl+T", IDM_NEW_TAB
+        MENUITEM "&Close Tab\tCtrl+W", IDM_CLOSE_TAB
+        MENUITEM "", 0, GRAYED
+        MENUITEM "Show &Raw / Formatted\tCtrl+M", IDM_TOGGLE_VIEW
+        MENUITEM "&Send as Sticky\tCtrl+Shift+S", IDM_SEND_STICKY
+    END
+    POPUP "&Help"
+    BEGIN
+        MENUITEM "&About", IDM_ABOUT
+    END
+END
+
+IDR_ACCEL ACCELERATORS
+BEGIN
+    VK_F4, IDM_EXIT, VIRTKEY, ALT
+    "Z", IDM_UNDO, VIRTKEY, CONTROL
+    "Y", IDM_REDO, VIRTKEY, CONTROL
+    "X", IDM_CUT, VIRTKEY, CONTROL
+    "C", IDM_COPY, VIRTKEY, CONTROL
+    "V", IDM_PASTE, VIRTKEY, CONTROL
+    "T", IDM_NEW_TAB, VIRTKEY, CONTROL
+    "W", IDM_CLOSE_TAB, VIRTKEY, CONTROL
+    "M", IDM_TOGGLE_VIEW, VIRTKEY, CONTROL
+    "S", IDM_SEND_STICKY, VIRTKEY, CONTROL, SHIFT
+    VK_TAB, IDM_NEXT_TAB, VIRTKEY, CONTROL
+END
+
+1 RT_MANIFEST "notes.manifest"
