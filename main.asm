@@ -25,16 +25,20 @@ g_cTabs DWORD 0
 g_iActiveTab DWORD 0
 
 PUBLIC start
-start PROC
+start PROC FRAME
     push rbp
     mov rbp, rsp
-    sub rsp, 80h                ; stack for msg struct
+    sub rsp, 128                ; stack for msg struct and shadow space
+    .endprolog
 
     push r12
     push r13
 
     mov r12, rcx                ; argc
     mov r13, rdx                ; argv
+
+    ; Initialize heap
+    call HeapInit
 
     ; Get module handle
     xor ecx, ecx
@@ -51,24 +55,29 @@ start PROC
     lea rcx, QWORD PTR [g_hMainWnd]
     call MainWndCreate
 
-    ; Load accelerators
+    mov rax, QWORD PTR [g_hMainWnd]
+    test rax, rax
+    jz start_exit                ; if window creation failed, exit
+
+    ; Load accelerators (optional)
     mov rcx, QWORD PTR [g_hInstance]
-    mov rdx, 101h               ; IDR_ACCEL
+    mov rdx, 102h               ; IDR_ACCEL
     call LoadAcceleratorsW
     mov QWORD PTR [g_hAccel], rax
 
     ; Message loop
-    lea rdi, [rsp + 16]
+    lea rdi, [rsp + 32]         ; address of MSG on stack
 
 msg_loop:
     mov rcx, rdi
-    xor edx, edx                ; hWnd = NULL
+    xor edx, edx                ; hWnd = NULL (get all)
     xor r8d, r8d                ; wMsgFilterMin = 0
     xor r9d, r9d                ; wMsgFilterMax = 0
     call GetMessageW
     cmp eax, 0
-    jle msg_done
+    jle msg_done                ; GetMessageW returns 0 when WM_QUIT received
 
+    ; Translate and dispatch
     mov rcx, rdi
     call TranslateMessage
 
@@ -81,8 +90,15 @@ msg_done:
     ; Save state on exit
     call StorageShutdown
 
+start_exit:
     mov ecx, 0
     call ExitProcess
+
+    pop r13
+    pop r12
+    mov rsp, rbp
+    pop rbp
+    ret
 
 start ENDP
 
