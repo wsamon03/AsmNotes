@@ -450,6 +450,20 @@ def caption_button(hwnd, which):
     return left + x, top + bord + cap // 2
 
 
+def caption_button_inside(hwnd, which):
+    """A point inside a caption button, away from its label."""
+    user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, 3)
+    time.sleep(0.2)
+    left, top, right, bottom = rect_of(hwnd)
+    dpi = user32.GetDpiForSystem()
+    bord = 6 * dpi // 96
+    cap = 26 * dpi // 96
+    w = right - left
+    buttons = 2 if which == "pin" else 1
+    x0 = left + w - bord - buttons * cap
+    return x0 + 3, top + bord + 3
+
+
 def rect_of(hwnd):
     rc = wintypes.RECT()
     user32.GetWindowRect(hwnd, ctypes.byref(rc))
@@ -483,7 +497,14 @@ def session_stickies(_unused):
         time.sleep(0.3)
         check("sticky is a snapshot of the tab", "XYZ" not in window_text(se), repr(window_text(se)))
 
-        mouse.click(button="left", coords=caption_button(st, "pin"))
+        px, py = caption_button_inside(st, "pin")
+        mouse.move(coords=(px, py))
+        time.sleep(0.4)
+        check("pin button shows hover colour", gdi_pixel(px, py) == 0x7A7A7A, hex(gdi_pixel(px, py)))
+        mouse.press(button="left", coords=(px, py))
+        time.sleep(0.4)
+        check("pin button shows pressed colour", gdi_pixel(px, py) == 0xAD5F1F, hex(gdi_pixel(px, py)))
+        mouse.release(button="left", coords=(px, py))
         time.sleep(0.4)
         pinned = bool(user32.GetWindowLongW(st, GWL_EXSTYLE) & WS_EX_TOPMOST)
         check("system menu pins the sticky on top", pinned)
@@ -614,6 +635,13 @@ def session_render(_unused):
         got = out.read_bytes() if out.exists() else b""
         check("%s: output matches the golden file" % src.name, got == expected.read_bytes(),
               len(got))
+        rtf_out = out_dir / (src.stem + ".out.rtf")
+        rtf_expected = fixtures / (src.stem + ".expected.rtf")
+        subprocess.run([str(EXE), "/render", str(src), str(rtf_out)], timeout=20)
+        got_rtf = rtf_out.read_bytes() if rtf_out.exists() else b""
+        check("%s: RTF output matches the golden file" % src.name, got_rtf == rtf_expected.read_bytes(),
+              len(got_rtf))
+        check("%s: RTF output is a document" % src.name, got_rtf.startswith(b"{\\rtf1"))
 
 
 def main():

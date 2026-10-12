@@ -9,7 +9,8 @@ A note-taking app for Windows 11, written in x64 assembly (MASM) against the Win
   (headings, bold, italic, strikethrough, code, lists, quotes, rules, links, escapes)
 - Six themes under View > Theme (Paper, Slate, Sepia, Solarized Dark, Forest, Midnight)
 - Sticky notes: Ctrl+Shift+S opens the active tab as a snapshot window (up to 32).
-  Each sticky has its own caption with a title, a Pin/Unpin button and a close button.
+  Each sticky has its own caption with a title, a Pin/Unpin button and a close button,
+  which show hover and pressed colours.
 - Autosave to `%APPDATA%\AsmNotes` (UTF-8 files and `settings.ini`), restored on launch
 - DPI-aware tab strip and sticky caption
 
@@ -59,8 +60,10 @@ This writes the formatted text followed by its formatting runs (see
 
 - The menu bar is the native Windows menu bar, so it keeps the system colours. This was a
   decision: it cannot be recoloured reliably without drawing our own menu bar.
-- The tab strip has a thin system bevel along its lower edge in dark themes.
-- The formatted view is not RTF. RTF streaming crashed in every configuration tried, so the
-  view applies character and paragraph formats directly, and `/render` writes a text dump.
+- A thin white baseline from the system tab control remains along the tab strip in dark
+  themes.
+- The on-screen formatted view is not RTF: streaming RTF into the editor crashed in every
+  configuration tried, so the view applies character and paragraph formats directly. The
+  `/render` seam writes RTF files from the same formatting runs.
 - Markdown is a subset: no tables, images or nested lists.
 - A note is limited to 65,535 characters.

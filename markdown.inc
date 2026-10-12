@@ -450,6 +450,7 @@ mb_bullet_chk:
     jae mb_number
     cmp WORD PTR [rax+2], 20h
     jne mb_number
+    lea rdx, QWORD PTR [rax+4]
     mov QWORD PTR [rbp-16], rdx
     xor eax, eax
     mov ecx, eax

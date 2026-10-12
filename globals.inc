@@ -100,3 +100,26 @@ k_stickies  WORD 'S','t','i','c','k','i','e','s',0
 s_cls_sticky WORD 'A','s','m','S','t','i','c','k','y',0
 s_sticky_title WORD 'S','t','i','c','k','y',' ','n','o','t','e',0
 s_pin_text  WORD 'A','l','w','a','y','s',' ','o','n',' ','t','o','p',0
+
+g_rtfbuf    QWORD 0
+g_rtfpos    QWORD 0
+r_head      DB "{\rtf1\ansi\deff0{\fonttbl{\f0\fswiss Segoe UI;}{\f1\fmodern Consolas;}}{\colortbl;", 0
+r_mid       DB "}\f0\fs22\cf1 ", 0
+r_close_doc DB "}", 0
+r_red       DB "\red", 0
+r_green     DB "\green", 0
+r_blue      DB "\blue", 0
+r_pard      DB "\pard", 0
+r_li        DB "\li", 0
+r_fi        DB "\fi", 0
+r_par_crlf  DB "\par", 0Ah, 0
+r_tab       DB "\tab ", 0
+r_uni       DB "\u", 0
+r_b         DB "\b", 0
+r_i         DB "\i", 0
+r_ul        DB "\ul", 0
+r_strike    DB "\strike", 0
+r_f1        DB "\f1", 0
+r_cf2       DB "\cf2", 0
+r_cf3       DB "\cf3", 0
+r_fs        DB "\fs", 0

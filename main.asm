@@ -69,6 +69,7 @@ EXTERN WideCharToMultiByte:PROC
 EXTERN MultiByteToWideChar:PROC
 EXTERN GetSystemMenu:PROC
 EXTERN GetDpiForWindow:PROC
+EXTERN TrackMouseEvent:PROC
 EXTERN FrameRect:PROC
 EXTERN SetWindowTheme:PROC
 EXTERN GetDC:PROC

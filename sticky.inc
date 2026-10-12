@@ -380,6 +380,11 @@ sticky_paint PROC FRAME
     mov ecx, DWORD PTR [rbp-40]
     add ecx, DWORD PTR [rbp-36]
     mov DWORD PTR [rbp-60], ecx
+    mov rcx, QWORD PTR [rbp-32]
+    lea rdx, QWORD PTR [rbp-72]
+    mov r8d, 1
+    mov r9, QWORD PTR [rbp-16]
+    call paint_button
     mov rax, QWORD PTR [rbp-16]
     lea rdx, QWORD PTR [s_pin_txt]
     cmp DWORD PTR [rax+32], 0
@@ -396,6 +401,11 @@ sp_pin_label:
     mov eax, DWORD PTR [rbp-80]
     sub eax, DWORD PTR [rbp-40]
     mov DWORD PTR [rbp-64], eax
+    mov rcx, QWORD PTR [rbp-32]
+    lea rdx, QWORD PTR [rbp-72]
+    mov r8d, 2
+    mov r9, QWORD PTR [rbp-16]
+    call paint_button
     mov rcx, QWORD PTR [rbp-32]
     lea rdx, QWORD PTR [s_close_txt]
     mov r8d, -1
@@ -463,6 +473,173 @@ sc_none:
     EPILOG
 sticky_click ENDP
 
+
+; rcx = sticky window, rdx = client point: 0 none, 1 pin button, 2 close button
+caption_button_at PROC FRAME
+    PROLOG
+    mov QWORD PTR [rbp-8], rcx
+    mov QWORD PTR [rbp-16], rdx
+    lea rdx, QWORD PTR [rbp-88]
+    mov rcx, QWORD PTR [rbp-8]
+    call GetClientRect
+    mov eax, 6
+    call scale_px
+    mov DWORD PTR [rbp-40], eax
+    mov eax, 26
+    call scale_px
+    mov DWORD PTR [rbp-36], eax
+    movzx eax, WORD PTR [rbp-16]
+    mov DWORD PTR [rbp-24], eax
+    movzx eax, WORD PTR [rbp-14]
+    cmp eax, DWORD PTR [rbp-40]
+    jl cba_none
+    mov ecx, DWORD PTR [rbp-40]
+    add ecx, DWORD PTR [rbp-36]
+    cmp eax, ecx
+    jge cba_none
+    mov edx, DWORD PTR [rbp-80]
+    sub edx, DWORD PTR [rbp-40]
+    sub edx, DWORD PTR [rbp-36]
+    cmp DWORD PTR [rbp-24], edx
+    jl cba_pin
+    mov eax, 2
+    EPILOG
+cba_pin:
+    sub edx, DWORD PTR [rbp-36]
+    cmp DWORD PTR [rbp-24], edx
+    jl cba_none
+    mov eax, 1
+    EPILOG
+cba_none:
+    xor eax, eax
+    EPILOG
+caption_button_at ENDP
+
+; rcx = sticky window, edx = hovered button, r8d = pressed button: redraws when either changes
+sticky_setstate PROC FRAME
+    PROLOG
+    mov QWORD PTR [rbp-8], rcx
+    mov DWORD PTR [rbp-12], edx
+    mov DWORD PTR [rbp-16], r8d
+    mov rcx, QWORD PTR [rbp-8]
+    mov edx, GWLP_USERDATA
+    call GetWindowLongPtrW
+    mov QWORD PTR [rbp-24], rax
+    mov ecx, DWORD PTR [rbp-12]
+    cmp ecx, DWORD PTR [rax+40]
+    jne ss_set
+    mov ecx, DWORD PTR [rbp-16]
+    cmp ecx, DWORD PTR [rax+44]
+    je ss_done
+ss_set:
+    mov ecx, DWORD PTR [rbp-12]
+    mov DWORD PTR [rax+40], ecx
+    mov ecx, DWORD PTR [rbp-16]
+    mov DWORD PTR [rax+44], ecx
+    mov rcx, QWORD PTR [rbp-8]
+    xor edx, edx
+    mov r8d, 1
+    call InvalidateRect
+ss_done:
+    EPILOG
+sticky_setstate ENDP
+
+sticky_mousemove PROC FRAME
+    PROLOG
+    mov QWORD PTR [rbp-8], rcx
+    mov QWORD PTR [rbp-16], rdx
+    mov rcx, QWORD PTR [rbp-8]
+    mov rdx, QWORD PTR [rbp-16]
+    call caption_button_at
+    mov DWORD PTR [rbp-24], eax
+    mov DWORD PTR [rbp-88], 24
+    mov DWORD PTR [rbp-84], 2
+    mov rax, QWORD PTR [rbp-8]
+    mov QWORD PTR [rbp-80], rax
+    mov DWORD PTR [rbp-72], 0
+    lea rcx, QWORD PTR [rbp-88]
+    call TrackMouseEvent
+    mov rcx, QWORD PTR [rbp-8]
+    mov edx, GWLP_USERDATA
+    call GetWindowLongPtrW
+    mov r8d, DWORD PTR [rax+44]
+    mov rcx, QWORD PTR [rbp-8]
+    mov edx, DWORD PTR [rbp-24]
+    call sticky_setstate
+    EPILOG
+sticky_mousemove ENDP
+
+; rcx = sticky window: the pointer left the window
+sticky_mouseleave PROC FRAME
+    PROLOG
+    xor edx, edx
+    xor r8d, r8d
+    call sticky_setstate
+    EPILOG
+sticky_mouseleave ENDP
+
+; rcx = sticky window, rdx = client point: a button was pressed
+sticky_mousedown PROC FRAME
+    PROLOG
+    mov QWORD PTR [rbp-8], rcx
+    mov QWORD PTR [rbp-16], rdx
+    mov rcx, QWORD PTR [rbp-8]
+    mov rdx, QWORD PTR [rbp-16]
+    call caption_button_at
+    mov DWORD PTR [rbp-24], eax
+    mov rcx, QWORD PTR [rbp-8]
+    mov edx, GWLP_USERDATA
+    call GetWindowLongPtrW
+    mov edx, DWORD PTR [rax+40]
+    mov r8d, DWORD PTR [rbp-24]
+    mov rcx, QWORD PTR [rbp-8]
+    call sticky_setstate
+    EPILOG
+sticky_mousedown ENDP
+
+; rcx = sticky window: the press is over (the click handler runs next)
+sticky_release PROC FRAME
+    PROLOG
+    mov QWORD PTR [rbp-8], rcx
+    mov rcx, QWORD PTR [rbp-8]
+    mov edx, GWLP_USERDATA
+    call GetWindowLongPtrW
+    mov edx, DWORD PTR [rax+40]
+    xor r8d, r8d
+    mov rcx, QWORD PTR [rbp-8]
+    call sticky_setstate
+    EPILOG
+sticky_release ENDP
+
+; rcx = hdc, rdx = button rectangle, r8d = button id, r9 = sticky record
+paint_button PROC FRAME
+    PROLOG
+    mov QWORD PTR [rbp-8], rcx
+    mov QWORD PTR [rbp-16], rdx
+    mov DWORD PTR [rbp-24], r8d
+    mov QWORD PTR [rbp-32], r9
+    mov rax, QWORD PTR [rbp-32]
+    mov ecx, DWORD PTR [rax+44]
+    cmp ecx, DWORD PTR [rbp-24]
+    jne pb_hover
+    call palette_ptr
+    mov r8d, DWORD PTR [rax+8]
+    jmp pb_fill
+pb_hover:
+    mov rax, QWORD PTR [rbp-32]
+    mov ecx, DWORD PTR [rax+40]
+    cmp ecx, DWORD PTR [rbp-24]
+    jne pb_done
+    call palette_ptr
+    mov r8d, DWORD PTR [rax+12]
+pb_fill:
+    mov rcx, QWORD PTR [rbp-8]
+    mov rdx, QWORD PTR [rbp-16]
+    call fill_rect_color
+pb_done:
+    EPILOG
+paint_button ENDP
+
 ; Sticky window procedure
 sticky_proc PROC FRAME
     PROLOG
@@ -484,6 +661,12 @@ sticky_proc PROC FRAME
     je sp_paint
     cmp eax, WM_LBUTTONUP
     je sp_click
+    cmp eax, WM_MOUSEMOVE
+    je sp_mousemove
+    cmp eax, WM_MOUSELEAVE
+    je sp_mouseleave
+    cmp eax, WM_LBUTTONDOWN
+    je sp_mousedown
     cmp eax, WM_EXITSIZEMOVE
     je sp_moved
     cmp eax, WM_CLOSE
@@ -517,8 +700,24 @@ sp_paint:
 
 sp_click:
     mov rcx, QWORD PTR [rbp-8]
+    call sticky_release
+    mov rcx, QWORD PTR [rbp-8]
     mov rdx, QWORD PTR [rbp-32]
     call sticky_click
+    jmp sp_zero
+sp_mousemove:
+    mov rcx, QWORD PTR [rbp-8]
+    mov rdx, QWORD PTR [rbp-32]
+    call sticky_mousemove
+    jmp sp_zero
+sp_mouseleave:
+    mov rcx, QWORD PTR [rbp-8]
+    call sticky_mouseleave
+    jmp sp_zero
+sp_mousedown:
+    mov rcx, QWORD PTR [rbp-8]
+    mov rdx, QWORD PTR [rbp-32]
+    call sticky_mousedown
     jmp sp_zero
 
 sp_create:
