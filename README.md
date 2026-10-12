@@ -4,13 +4,14 @@ A note-taking app for Windows 11, written in x64 assembly (MASM) against the Win
 
 ## Features
 
-- Multiple tabs (Ctrl+T new, Ctrl+W close, Ctrl+Tab next), up to 32
+- Multiple tabs (Ctrl+T new, Ctrl+W close, Ctrl+Tab next), up to 32, drawn in the theme colours
 - Markdown: Ctrl+M switches between raw source and a formatted, read-only view
   (headings, bold, italic, strikethrough, code, lists, quotes, rules, links, escapes)
 - Six themes under View > Theme (Paper, Slate, Sepia, Solarized Dark, Forest, Midnight)
 - Sticky notes: Ctrl+Shift+S opens the active tab as a snapshot window (up to 32).
-  Stickies can be pinned on top from their system menu.
+  Each sticky has its own caption with a title, a Pin/Unpin button and a close button.
 - Autosave to `%APPDATA%\AsmNotes` (UTF-8 files and `settings.ini`), restored on launch
+- DPI-aware tab strip and sticky caption
 
 ## Build
 
@@ -26,21 +27,40 @@ With the exe built, run:
 
     python tests\test_e2e.py
 
-The tests start the real exe, drive it with keyboard and menu input (pywinauto),
-read state back through Win32 messages, and check the files written to a
-temporary `%APPDATA%`. They need Python 3 with `pywinauto` installed.
+The suite has nine sessions. It starts the real exe and drives it with keyboard and
+mouse input (pywinauto), reads state back through Win32 messages, checks the files
+written to a temporary `%APPDATA%`, and compares the `/render` output with golden files.
+It also samples pixels to check the editor and tab strip colours in all six themes,
+and it checks the 32-tab and 32-sticky limits. Python 3 with `pywinauto` is required.
+
+Headless renderer check:
+
+    AsmNotes.exe /render input.md output.txt
+
+This writes the formatted text followed by its formatting runs (see
+`tests\fixtures\*.expected.txt`).
 
 ## Layout
 
-- `main.asm` - all code: window procedures, tabs, persistence, Markdown renderer, stickies
+- `main.asm` - entry point, command line handling, includes
 - `consts.inc` - Win32 equates checked against the SDK headers
-- `notes.rc`, `winconst.h` - menu, accelerators and the application manifest reference
+- `globals.inc` - data: state, palette, strings
+- `util.inc` - heap, colours and drawing helpers
+- `storage.inc` - file I/O, settings, tab and sticky persistence
+- `markdown.inc` - Markdown parsing into text and formatting runs, and their application
+- `tabs.inc` - tab strip, tab drawing, switching and closing
+- `sticky.inc` - sticky windows and their custom caption
+- `render.inc` - the `/render` headless renderer
+- `mainwnd.inc` - themes and the main window procedure
+- `notes.rc`, `winconst.h` - menu, accelerators and resource IDs
 - `notes.manifest` - Common Controls v6 and per-monitor DPI awareness
 
 ## Known limitations
 
-- Tab strip and menu bar use the system colours; only the editor area follows the theme.
-- The tab strip height is fixed in pixels and does not scale with DPI.
-- Sticky windows use the standard Windows caption rather than a custom one.
+- The menu bar is the native Windows menu bar, so it keeps the system colours. This was a
+  decision: it cannot be recoloured reliably without drawing our own menu bar.
+- The tab strip has a thin system bevel along its lower edge in dark themes.
+- The formatted view is not RTF. RTF streaming crashed in every configuration tried, so the
+  view applies character and paragraph formats directly, and `/render` writes a text dump.
 - Markdown is a subset: no tables, images or nested lists.
 - A note is limited to 65,535 characters.

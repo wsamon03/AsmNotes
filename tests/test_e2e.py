@@ -436,6 +436,8 @@ user32.GetDpiForSystem.restype = wintypes.UINT
 
 def caption_button(hwnd, which):
     """Screen coordinates of the pin ('pin') or close ('close') button of a sticky."""
+    user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, 3)
+    time.sleep(0.2)
     left, top, right, bottom = rect_of(hwnd)
     dpi = user32.GetDpiForSystem()
     bord = 6 * dpi // 96
@@ -553,6 +555,67 @@ def session_limits(_unused):
         app.kill()
 
 
+THEME_MENU = ["Paper", "Slate", "Sepia", "Solarized Dark", "Forest", "Midnight"]
+THEME_BG = [0xF1F8FB, 0x30251E, 0xD8ECF4, 0x362B00, 0xECF5EE, 0x20100B]
+
+
+def session_themes(_unused):
+    print("\n== Session 8: every theme ==")
+    data = Path(tempfile.mkdtemp())
+    shots = Path(tempfile.mkdtemp())
+    app = App(data)
+    try:
+        app.focus()
+        type_text(app.editor, "Theme check")
+        send_keys("^t")
+        time.sleep(0.4)
+        for idx, name in enumerate(THEME_MENU):
+            app.win.menu_select("View->Theme->" + name)
+            time.sleep(0.6)
+            bg = editor_bg_pixel(app.editor)
+            check("editor follows theme %s" % name, bg == THEME_BG[idx], hex(bg))
+            left, top, right, bottom = rect_of(app.tabs)
+            strip = gdi_pixel(right - 20, top + (bottom - top) // 2)
+            check("tab strip follows theme %s" % name, strip == THEME_BG[idx], hex(strip))
+            crop_screen(left, top, min(right, left + 700), top + 180, shots / ("theme%d.png" % idx))
+        print("screenshots in", shots)
+        exited, code = app.close()
+        check("theme session exits cleanly", exited and code == 0, code)
+    finally:
+        app.kill()
+
+
+def gdi_pixel(x, y):
+    hdc = user32.GetDC(None)
+    color = gdi32.GetPixel(hdc, x, y)
+    user32.ReleaseDC(None, hdc)
+    return color & 0xFFFFFF
+
+
+def crop_screen(left, top, right, bottom, path):
+    import subprocess
+    ps = ("Add-Type -AssemblyName System.Drawing; $b = New-Object System.Drawing.Bitmap %d, %d; "
+          "$g = [System.Drawing.Graphics]::FromImage($b); $g.CopyFromScreen(%d, %d, 0, 0, $b.Size); "
+          "$b.Save('%s')") % (right - left, bottom - top, left, top, str(path))
+    subprocess.run(["powershell", "-NoProfile", "-Command", ps], check=False)
+
+
+def session_render(_unused):
+    print("\n== Session 9: /render seam against golden files ==")
+    fixtures = Path(__file__).resolve().parent / "fixtures"
+    out_dir = Path(tempfile.mkdtemp())
+    for src in sorted(fixtures.glob("*.md")):
+        expected = fixtures / (src.stem + ".expected.txt")
+        out = out_dir / (src.stem + ".out.txt")
+        before = src.read_bytes()
+        result = subprocess.run([str(EXE), "/render", str(src), str(out)], timeout=20)
+        check("%s: render exits cleanly" % src.name, result.returncode == 0, result.returncode)
+        check("%s: input file is left untouched" % src.name, src.read_bytes() == before)
+        got = out.read_bytes() if out.exists() else b""
+        check("%s: output matches the golden file" % src.name, got == expected.read_bytes(),
+              len(got))
+
+
 def main():
     if not EXE.exists():
         print("FAIL exe not built: " + str(EXE))
@@ -566,6 +629,8 @@ def main():
         session_formatted_restore(data)
         session_stickies(data)
         session_limits(data)
+        session_themes(data)
+        session_render(data)
 
     print()
     if failures:
