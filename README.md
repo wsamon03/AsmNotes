@@ -60,8 +60,6 @@ This writes the formatted text followed by its formatting runs (see
 
 - The menu bar is the native Windows menu bar, so it keeps the system colours. This was a
   decision: it cannot be recoloured reliably without drawing our own menu bar.
-- A thin white baseline from the system tab control remains along the tab strip in dark
-  themes.
 - The on-screen formatted view is not RTF: streaming RTF into the editor crashed in every
   configuration tried, so the view applies character and paragraph formats directly. The
   `/render` seam writes RTF files from the same formatting runs.

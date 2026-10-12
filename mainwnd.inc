@@ -109,7 +109,7 @@ mp_create:
     xor ecx, ecx
     lea rdx, QWORD PTR [s_tabclass]
     xor r8d, r8d
-    mov r9d, WS_CHILD + WS_VISIBLE + WS_TABSTOP + TCS_OWNERDRAWFIXED
+    mov r9d, WS_CHILD + WS_VISIBLE + TCS_OWNERDRAWFIXED + 0100h
     mov DWORD PTR [rsp+32], 0
     mov DWORD PTR [rsp+40], 0
     mov DWORD PTR [rsp+48], 0
