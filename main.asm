@@ -66,6 +66,13 @@ EXTERN MoveFileExW:PROC
 EXTERN DeleteFileW:PROC
 EXTERN WideCharToMultiByte:PROC
 EXTERN MultiByteToWideChar:PROC
+EXTERN GetSystemMenu:PROC
+EXTERN AppendMenuW:PROC
+EXTERN CheckMenuItem:PROC
+EXTERN SetWindowLongPtrW:PROC
+EXTERN GetWindowLongPtrW:PROC
+EXTERN GetWindowRect:PROC
+EXTERN SetWindowPos:PROC
 
 .DATA
 ALIGN 8
@@ -140,6 +147,21 @@ g_pf        BYTE 188 DUP(0)
 g_cf2       BYTE 116 DUP(0)
 hsize       DWORD 0, 360, 300, 260, 240, 240, 240
 s_consolas  WORD 'C','o','n','s','o','l','a','s',0
+g_key       WORD 32 DUP(0)
+g_stk       QWORD MAX_STK DUP(0)
+g_nstk      DWORD 0
+g_rhEdit    QWORD 0
+fmt_stpath  WORD '%','s',5Ch,'s','t','i','c','k','y','%','d','.','m','d',0
+fmt_key     WORD '%','s','%','d',0
+s_kx        WORD 'X',0
+s_ky        WORD 'Y',0
+s_kw        WORD 'W',0
+s_kh        WORD 'H',0
+s_kp        WORD 'P',0
+k_stickies  WORD 'S','t','i','c','k','i','e','s',0
+s_cls_sticky WORD 'A','s','m','S','t','i','c','k','y',0
+s_sticky_title WORD 'S','t','i','c','k','y',' ','n','o','t','e',0
+s_pin_text  WORD 'A','l','w','a','y','s',' ','o','n',' ','t','o','p',0
 
 .CODE
 
@@ -425,142 +447,6 @@ path_for_tab PROC FRAME
 path_for_tab ENDP
 
 ; ecx = tab index: writes it as UTF-8 to a temp file, then renames over the real file
-save_tab_file PROC FRAME
-    PROLOG
-    mov eax, ecx
-    mov QWORD PTR [rbp-8], rax
-    lea r11, QWORD PTR [g_tabs]
-    mov rcx, QWORD PTR [r11 + rax*8]
-    mov QWORD PTR [rbp-16], rcx
-    mov rdx, QWORD PTR [rcx]
-    mov QWORD PTR [rbp-24], rdx
-    mov eax, DWORD PTR [rcx+8]
-    mov QWORD PTR [rbp-32], rax
-    mov ecx, 65001
-    xor edx, edx
-    mov r8, QWORD PTR [rbp-24]
-    mov r9, QWORD PTR [rbp-32]
-    mov QWORD PTR [rsp+32], 0
-    mov QWORD PTR [rsp+40], 0
-    mov QWORD PTR [rsp+48], 0
-    mov QWORD PTR [rsp+56], 0
-    call WideCharToMultiByte
-    mov QWORD PTR [rbp-40], rax
-    mov ecx, eax
-    add ecx, 8
-    call heap_alloc
-    mov QWORD PTR [rbp-48], rax
-    mov ecx, 65001
-    xor edx, edx
-    mov r8, QWORD PTR [rbp-24]
-    mov r9, QWORD PTR [rbp-32]
-    mov QWORD PTR [rsp+32], rax
-    mov rax, QWORD PTR [rbp-40]
-    mov QWORD PTR [rsp+40], rax
-    mov QWORD PTR [rsp+48], 0
-    mov QWORD PTR [rsp+56], 0
-    call WideCharToMultiByte
-    mov rcx, QWORD PTR [rbp-8]
-    call path_for_tab
-    lea rcx, QWORD PTR [g_tmp]
-    lea rdx, QWORD PTR [fmt_tmp]
-    lea r8, QWORD PTR [g_path]
-    call wsprintfW
-    lea rcx, QWORD PTR [g_tmp]
-    mov edx, 40000000h
-    xor r8d, r8d
-    xor r9d, r9d
-    mov DWORD PTR [rsp+32], 2
-    mov DWORD PTR [rsp+40], 80h
-    mov QWORD PTR [rsp+48], 0
-    call CreateFileW
-    cmp rax, -1
-    je stf_free
-    mov QWORD PTR [rbp-56], rax
-    mov rcx, rax
-    mov rdx, QWORD PTR [rbp-48]
-    mov r8, QWORD PTR [rbp-40]
-    lea r9, QWORD PTR [rbp-64]
-    mov QWORD PTR [rsp+32], 0
-    call WriteFile
-    mov rcx, QWORD PTR [rbp-56]
-    call CloseHandle
-    lea rcx, QWORD PTR [g_tmp]
-    lea rdx, QWORD PTR [g_path]
-    mov r8d, 1
-    call MoveFileExW
-stf_free:
-    mov rcx, QWORD PTR [rbp-48]
-    call heap_free
-    EPILOG
-save_tab_file ENDP
-
-; ecx = tab index: reads its file (if any) into the tab
-load_tab_file PROC FRAME
-    PROLOG
-    mov eax, ecx
-    mov QWORD PTR [rbp-8], rax
-    call path_for_tab
-    lea rcx, QWORD PTR [g_path]
-    mov edx, 80000000h
-    mov r8d, 1
-    xor r9d, r9d
-    mov DWORD PTR [rsp+32], 3
-    mov DWORD PTR [rsp+40], 80h
-    mov QWORD PTR [rsp+48], 0
-    call CreateFileW
-    cmp rax, -1
-    je ltf_done
-    mov QWORD PTR [rbp-16], rax
-    mov rcx, rax
-    xor edx, edx
-    call GetFileSize
-    cmp eax, -1
-    je ltf_close_only
-    cmp eax, 262144
-    ja ltf_close_only
-    mov DWORD PTR [rbp-24], eax
-    mov ecx, eax
-    add ecx, 4
-    call heap_alloc
-    mov QWORD PTR [rbp-32], rax
-    mov rcx, QWORD PTR [rbp-16]
-    mov rdx, QWORD PTR [rbp-32]
-    mov r8d, DWORD PTR [rbp-24]
-    lea r9, QWORD PTR [rbp-40]
-    mov QWORD PTR [rsp+32], 0
-    call ReadFile
-    mov rcx, QWORD PTR [rbp-16]
-    call CloseHandle
-    mov rax, QWORD PTR [rbp-8]
-    lea r11, QWORD PTR [g_tabs]
-    mov rcx, QWORD PTR [r11 + rax*8]
-    mov QWORD PTR [rbp-48], rcx
-    mov rax, QWORD PTR [rcx]
-    mov QWORD PTR [rsp+32], rax
-    mov DWORD PTR [rsp+40], MAX_CCH - 1
-    mov ecx, 65001
-    xor edx, edx
-    mov r8, QWORD PTR [rbp-32]
-    mov r9d, DWORD PTR [rbp-24]
-    call MultiByteToWideChar
-    mov rcx, QWORD PTR [rbp-48]
-    mov DWORD PTR [rcx+8], eax
-    mov rdx, QWORD PTR [rcx]
-    mov eax, DWORD PTR [rcx+8]
-    mov WORD PTR [rdx + rax*2], 0
-    mov rcx, QWORD PTR [rbp-32]
-    call heap_free
-    jmp ltf_title
-ltf_close_only:
-    mov rcx, QWORD PTR [rbp-16]
-    call CloseHandle
-ltf_title:
-    mov ecx, DWORD PTR [rbp-8]
-    call update_title
-ltf_done:
-    EPILOG
-load_tab_file ENDP
 
 ; Writes every open tab, removes files of closed tabs, and saves the settings
 save_all PROC FRAME
@@ -586,6 +472,7 @@ sa_delete:
     inc DWORD PTR [rbp-8]
     jmp sa_delete
 sa_settings:
+    call save_stickies
     lea rcx, QWORD PTR [k_tabs]
     mov edx, DWORD PTR [g_nTabs]
     call set_int
@@ -651,6 +538,7 @@ la_tabs_done:
 la_active_ok:
     mov ecx, eax
     call activate
+    call load_stickies
     EPILOG
 load_all ENDP
 
@@ -726,31 +614,8 @@ next_tab ENDP
 set_theme PROC FRAME
     PROLOG
     mov DWORD PTR [g_theme], ecx
-    mov eax, ecx
-    shl eax, 4
-    lea rdx, QWORD PTR [g_palette]
-    add rdx, rax
-    mov QWORD PTR [rbp-8], rdx
-    mov r9d, DWORD PTR [rdx]
     mov rcx, QWORD PTR [g_hEdit]
-    mov edx, EM_SETBKGNDCOLOR
-    xor r8d, r8d
-    call SendMessageW
-    mov rdx, QWORD PTR [rbp-8]
-    mov eax, DWORD PTR [rdx+4]
-    mov DWORD PTR [g_cf+20], eax
-    mov DWORD PTR [g_cf], 116
-    mov DWORD PTR [g_cf+4], CFM_COLOR
-    mov rcx, QWORD PTR [g_hEdit]
-    mov edx, EM_SETCHARFORMAT
-    xor r8d, r8d
-    lea r9, QWORD PTR [g_cf]
-    call SendMessageW
-    mov rcx, QWORD PTR [g_hEdit]
-    mov edx, EM_SETCHARFORMAT
-    mov r8d, SCF_ALL
-    lea r9, QWORD PTR [g_cf]
-    call SendMessageW
+    call style_editor
     mov rcx, QWORD PTR [g_hMain]
     call GetMenu
     mov rcx, rax
@@ -780,6 +645,7 @@ st_light:
     xor edx, edx
     mov r8d, 1
     call InvalidateRect
+    call update_stickies
     cmp DWORD PTR [g_view], 0
     je st_done
     call render_active
@@ -1421,12 +1287,12 @@ apply_par PROC FRAME
     mov rdx, QWORD PTR [rbp-8]
     mov eax, DWORD PTR [rdx]
     mov QWORD PTR [rbp-16], rax
-    mov rcx, QWORD PTR [g_hEdit]
+    mov rcx, QWORD PTR [g_rhEdit]
     mov edx, EM_SETSEL
     mov r8, QWORD PTR [rbp-16]
     mov r9, QWORD PTR [rbp-16]
     call SendMessageW
-    mov rcx, QWORD PTR [g_hEdit]
+    mov rcx, QWORD PTR [g_rhEdit]
     mov edx, EM_SETPARAFORMAT
     xor r8d, r8d
     lea r9, QWORD PTR [g_pf]
@@ -1443,7 +1309,7 @@ apply_span PROC FRAME
     mov eax, DWORD PTR [rcx+4]
     add rax, QWORD PTR [rbp-16]
     mov QWORD PTR [rbp-24], rax
-    mov rcx, QWORD PTR [g_hEdit]
+    mov rcx, QWORD PTR [g_rhEdit]
     mov edx, EM_SETSEL
     mov r8, QWORD PTR [rbp-16]
     mov r9, QWORD PTR [rbp-24]
@@ -1471,7 +1337,7 @@ as_face:
     dec r8d
     jnz as_face
 as_send:
-    mov rcx, QWORD PTR [g_hEdit]
+    mov rcx, QWORD PTR [g_rhEdit]
     mov edx, EM_SETCHARFORMAT
     mov r8d, 1
     lea r9, QWORD PTR [g_cf2]
@@ -1480,23 +1346,239 @@ as_send:
 apply_span ENDP
 
 ; Shows the active tab as formatted text in the editor
-render_active PROC FRAME
+; ---- Files --------------------------------------------------------------------
+
+; rcx = source (UTF-16), rdx = length: writes g_path as UTF-8 via g_tmp, then renames
+write_src PROC FRAME
     PROLOG
-    cmp DWORD PTR [g_nTabs], 0
-    je ra_done
-    mov eax, DWORD PTR [g_active]
+    mov QWORD PTR [rbp-8], rcx
+    mov QWORD PTR [rbp-16], rdx
+    mov ecx, 65001
+    xor edx, edx
+    mov r8, QWORD PTR [rbp-8]
+    mov r9, QWORD PTR [rbp-16]
+    mov QWORD PTR [rsp+32], 0
+    mov QWORD PTR [rsp+40], 0
+    mov QWORD PTR [rsp+48], 0
+    mov QWORD PTR [rsp+56], 0
+    call WideCharToMultiByte
+    mov QWORD PTR [rbp-24], rax
+    mov ecx, eax
+    add ecx, 8
+    call heap_alloc
+    mov QWORD PTR [rbp-32], rax
+    mov ecx, 65001
+    xor edx, edx
+    mov r8, QWORD PTR [rbp-8]
+    mov r9, QWORD PTR [rbp-16]
+    mov QWORD PTR [rsp+32], rax
+    mov rax, QWORD PTR [rbp-24]
+    mov QWORD PTR [rsp+40], rax
+    mov QWORD PTR [rsp+48], 0
+    mov QWORD PTR [rsp+56], 0
+    call WideCharToMultiByte
+    lea rcx, QWORD PTR [g_tmp]
+    lea rdx, QWORD PTR [fmt_tmp]
+    lea r8, QWORD PTR [g_path]
+    call wsprintfW
+    lea rcx, QWORD PTR [g_tmp]
+    mov edx, 40000000h
+    xor r8d, r8d
+    xor r9d, r9d
+    mov DWORD PTR [rsp+32], 2
+    mov DWORD PTR [rsp+40], 80h
+    mov QWORD PTR [rsp+48], 0
+    call CreateFileW
+    cmp rax, -1
+    je ws_free
+    mov QWORD PTR [rbp-40], rax
+    mov rcx, rax
+    mov rdx, QWORD PTR [rbp-32]
+    mov r8, QWORD PTR [rbp-24]
+    lea r9, QWORD PTR [rbp-48]
+    mov QWORD PTR [rsp+32], 0
+    call WriteFile
+    mov rcx, QWORD PTR [rbp-40]
+    call CloseHandle
+    lea rcx, QWORD PTR [g_tmp]
+    lea rdx, QWORD PTR [g_path]
+    mov r8d, 1
+    call MoveFileExW
+ws_free:
+    mov rcx, QWORD PTR [rbp-32]
+    call heap_free
+    EPILOG
+write_src ENDP
+
+; rcx = destination, rdx = capacity in characters -> eax = characters read (0 if no file)
+read_src PROC FRAME
+    PROLOG
+    mov QWORD PTR [rbp-8], rcx
+    mov QWORD PTR [rbp-16], rdx
+    mov DWORD PTR [rbp-56], 0
+    lea rcx, QWORD PTR [g_path]
+    mov edx, 80000000h
+    mov r8d, 1
+    xor r9d, r9d
+    mov DWORD PTR [rsp+32], 3
+    mov DWORD PTR [rsp+40], 80h
+    mov QWORD PTR [rsp+48], 0
+    call CreateFileW
+    cmp rax, -1
+    je rs_fail
+    mov QWORD PTR [rbp-24], rax
+    mov rcx, rax
+    xor edx, edx
+    call GetFileSize
+    cmp eax, -1
+    je rs_close
+    cmp eax, 262144
+    ja rs_close
+    mov DWORD PTR [rbp-32], eax
+    mov ecx, eax
+    add ecx, 4
+    call heap_alloc
+    mov QWORD PTR [rbp-40], rax
+    mov rcx, QWORD PTR [rbp-24]
+    mov rdx, QWORD PTR [rbp-40]
+    mov r8d, DWORD PTR [rbp-32]
+    lea r9, QWORD PTR [rbp-48]
+    mov QWORD PTR [rsp+32], 0
+    call ReadFile
+    mov rcx, QWORD PTR [rbp-24]
+    call CloseHandle
+    mov rax, QWORD PTR [rbp-8]
+    mov QWORD PTR [rsp+32], rax
+    mov eax, DWORD PTR [rbp-16]
+    mov DWORD PTR [rsp+40], eax
+    mov ecx, 65001
+    xor edx, edx
+    mov r8, QWORD PTR [rbp-40]
+    mov r9d, DWORD PTR [rbp-32]
+    call MultiByteToWideChar
+    mov DWORD PTR [rbp-56], eax
+    mov rdx, QWORD PTR [rbp-8]
+    movsxd rax, DWORD PTR [rbp-56]
+    mov WORD PTR [rdx + rax*2], 0
+    mov rcx, QWORD PTR [rbp-40]
+    call heap_free
+    jmp rs_ret
+rs_close:
+    mov rcx, QWORD PTR [rbp-24]
+    call CloseHandle
+rs_fail:
+    mov rdx, QWORD PTR [rbp-8]
+    mov WORD PTR [rdx], 0
+rs_ret:
+    mov eax, DWORD PTR [rbp-56]
+    EPILOG
+read_src ENDP
+
+; ecx = index -> g_path = that sticky's file
+path_for_sticky PROC FRAME
+    PROLOG
+    mov eax, ecx
+    mov QWORD PTR [rbp-8], rax
+    lea rcx, QWORD PTR [g_path]
+    lea rdx, QWORD PTR [fmt_stpath]
+    lea r8, QWORD PTR [g_dir]
+    mov r9, QWORD PTR [rbp-8]
+    call wsprintfW
+    EPILOG
+path_for_sticky ENDP
+
+; ecx = tab index: writes the tab's text to its file
+save_tab_file PROC FRAME
+    PROLOG
+    mov eax, ecx
+    mov QWORD PTR [rbp-8], rax
+    mov ecx, eax
+    call path_for_tab
+    mov rax, QWORD PTR [rbp-8]
     lea r11, QWORD PTR [g_tabs]
     mov rcx, QWORD PTR [r11 + rax*8]
     mov rdx, QWORD PTR [rcx]
-    mov QWORD PTR [g_rsrc], rdx
+    mov QWORD PTR [rbp-16], rdx
     mov eax, DWORD PTR [rcx+8]
+    mov QWORD PTR [rbp-24], rax
+    mov rcx, QWORD PTR [rbp-16]
+    mov rdx, QWORD PTR [rbp-24]
+    call write_src
+    EPILOG
+save_tab_file ENDP
+
+; ecx = tab index: reads the tab's file (if any) into the tab
+load_tab_file PROC FRAME
+    PROLOG
+    mov eax, ecx
+    mov QWORD PTR [rbp-8], rax
+    mov ecx, eax
+    call path_for_tab
+    mov rax, QWORD PTR [rbp-8]
+    lea r11, QWORD PTR [g_tabs]
+    mov rcx, QWORD PTR [r11 + rax*8]
+    mov QWORD PTR [rbp-16], rcx
+    mov rcx, QWORD PTR [rcx]
+    mov edx, MAX_CCH - 1
+    call read_src
+    mov rcx, QWORD PTR [rbp-16]
+    mov DWORD PTR [rcx+8], eax
+    mov ecx, DWORD PTR [rbp-8]
+    call update_title
+    EPILOG
+load_tab_file ENDP
+
+; ---- Editor styling and rendering ---------------------------------------------
+
+; rcx = editor: applies the current theme's background and default text colour
+style_editor PROC FRAME
+    PROLOG
+    mov QWORD PTR [rbp-8], rcx
+    mov eax, DWORD PTR [g_theme]
+    shl eax, 4
+    lea rdx, QWORD PTR [g_palette]
+    add rdx, rax
+    mov QWORD PTR [rbp-16], rdx
+    mov r9d, DWORD PTR [rdx]
+    mov rcx, QWORD PTR [rbp-8]
+    mov edx, EM_SETBKGNDCOLOR
+    xor r8d, r8d
+    call SendMessageW
+    mov rdx, QWORD PTR [rbp-16]
+    mov eax, DWORD PTR [rdx+4]
+    mov DWORD PTR [g_cf+20], eax
+    mov DWORD PTR [g_cf], 116
+    mov DWORD PTR [g_cf+4], CFM_COLOR
+    mov rcx, QWORD PTR [rbp-8]
+    mov edx, EM_SETCHARFORMAT
+    xor r8d, r8d
+    lea r9, QWORD PTR [g_cf]
+    call SendMessageW
+    mov rcx, QWORD PTR [rbp-8]
+    mov edx, EM_SETCHARFORMAT
+    mov r8d, SCF_ALL
+    lea r9, QWORD PTR [g_cf]
+    call SendMessageW
+    EPILOG
+style_editor ENDP
+
+; rcx = editor, rdx = source, r8 = length: renders the Markdown into the editor (read-only)
+render_into PROC FRAME
+    PROLOG
+    mov QWORD PTR [rbp-8], rcx
+    mov QWORD PTR [rbp-16], rdx
+    mov QWORD PTR [rbp-24], r8
+    mov rax, QWORD PTR [rbp-8]
+    mov QWORD PTR [g_rhEdit], rax
+    mov rax, QWORD PTR [rbp-16]
+    mov QWORD PTR [g_rsrc], rax
+    mov rax, QWORD PTR [rbp-24]
     mov QWORD PTR [g_rcch], rax
     mov rax, QWORD PTR [g_rcch]
     imul rax, rax, 3
     add rax, 16
     mov QWORD PTR [g_spancap], rax
     shl rax, 5
-    mov QWORD PTR [rbp-8], rax
     mov rcx, rax
     call heap_alloc
     mov QWORD PTR [g_spans], rax
@@ -1524,44 +1606,44 @@ render_active PROC FRAME
     mov eax, DWORD PTR [rdx+12]
     mov DWORD PTR [g_muted], eax
     call md_build
-    mov rcx, QWORD PTR [g_hEdit]
+    mov rcx, QWORD PTR [g_rhEdit]
     mov edx, EM_SETREADONLY
     xor r8d, r8d
     xor r9d, r9d
     call SendMessageW
-    mov rcx, QWORD PTR [g_hEdit]
+    mov rcx, QWORD PTR [g_rhEdit]
     mov rdx, QWORD PTR [g_plain]
     call SetWindowTextW
     mov QWORD PTR [rbp-16], 0
-ra_pars:
+ri_pars:
     mov rax, QWORD PTR [rbp-16]
     cmp rax, QWORD PTR [g_npars]
-    jae ra_pars_done
+    jae ri_pars_done
     shl rax, 4
     add rax, QWORD PTR [g_pars]
     mov rcx, rax
     call apply_par
     inc QWORD PTR [rbp-16]
-    jmp ra_pars
-ra_pars_done:
+    jmp ri_pars
+ri_pars_done:
     mov QWORD PTR [rbp-16], 0
-ra_spans:
+ri_spans:
     mov rax, QWORD PTR [rbp-16]
     cmp rax, QWORD PTR [g_nspans]
-    jae ra_spans_done
+    jae ri_spans_done
     shl rax, 5
     add rax, QWORD PTR [g_spans]
     mov rcx, rax
     call apply_span
     inc QWORD PTR [rbp-16]
-    jmp ra_spans
-ra_spans_done:
-    mov rcx, QWORD PTR [g_hEdit]
+    jmp ri_spans
+ri_spans_done:
+    mov rcx, QWORD PTR [g_rhEdit]
     mov edx, EM_SETSEL
     xor r8d, r8d
     xor r9d, r9d
     call SendMessageW
-    mov rcx, QWORD PTR [g_hEdit]
+    mov rcx, QWORD PTR [g_rhEdit]
     mov edx, EM_SETREADONLY
     mov r8d, 1
     xor r9d, r9d
@@ -1572,6 +1654,21 @@ ra_spans_done:
     call heap_free
     mov rcx, QWORD PTR [g_pars]
     call heap_free
+    EPILOG
+render_into ENDP
+
+; Shows the active tab as formatted text in the editor
+render_active PROC FRAME
+    PROLOG
+    cmp DWORD PTR [g_nTabs], 0
+    je ra_done
+    mov eax, DWORD PTR [g_active]
+    lea r11, QWORD PTR [g_tabs]
+    mov rcx, QWORD PTR [r11 + rax*8]
+    mov rdx, QWORD PTR [rcx]
+    mov r8d, DWORD PTR [rcx+8]
+    mov rcx, QWORD PTR [g_hEdit]
+    call render_into
 ra_done:
     EPILOG
 render_active ENDP
@@ -1584,6 +1681,526 @@ toggle_view PROC FRAME
     call save_all
     EPILOG
 toggle_view ENDP
+
+; ---- Stickies -----------------------------------------------------------------
+; Sticky record (48 bytes): [0] source buffer, [8] length, [16] window, [24] editor,
+; [32] pinned flag
+
+; ecx = pinned flag: sets the window's always-on-top state and its system menu check
+apply_pin PROC FRAME
+    PROLOG
+    mov QWORD PTR [rbp-8], rcx
+    mov DWORD PTR [rbp-16], edx
+    mov rcx, QWORD PTR [rbp-8]
+    mov rdx, -2
+    cmp DWORD PTR [rbp-16], 0
+    je ap_set
+    mov rdx, -1
+ap_set:
+    xor r8d, r8d
+    xor r9d, r9d
+    mov DWORD PTR [rsp+32], 0
+    mov DWORD PTR [rsp+40], 0
+    mov DWORD PTR [rsp+48], 3
+    call SetWindowPos
+    mov rcx, QWORD PTR [rbp-8]
+    xor edx, edx
+    call GetSystemMenu
+    mov rcx, rax
+    mov edx, IDM_PIN
+    xor r8d, r8d
+    cmp DWORD PTR [rbp-16], 0
+    je ap_unchecked
+    mov r8d, 8
+ap_unchecked:
+    call CheckMenuItem
+    EPILOG
+apply_pin ENDP
+
+; ecx = key prefix pointer, edx = index -> g_key
+key_build PROC FRAME
+    PROLOG
+    mov r8, rcx
+    mov r9d, edx
+    lea rcx, QWORD PTR [g_key]
+    lea rdx, QWORD PTR [fmt_key]
+    call wsprintfW
+    EPILOG
+key_build ENDP
+
+; rcx = source buffer (owned by the sticky), rdx = length, r8d = x, r9d = y,
+; [rbp+48] = width, [rbp+56] = height, [rbp+64] = pinned
+create_sticky PROC FRAME
+    PROLOG
+    mov QWORD PTR [rbp-8], rcx
+    mov QWORD PTR [rbp-16], rdx
+    mov DWORD PTR [rbp-24], r8d
+    mov DWORD PTR [rbp-32], r9d
+    mov eax, DWORD PTR [rbp+48]
+    mov DWORD PTR [rbp-40], eax
+    mov eax, DWORD PTR [rbp+56]
+    mov DWORD PTR [rbp-48], eax
+    mov eax, DWORD PTR [rbp+64]
+    mov DWORD PTR [rbp-56], eax
+    mov ecx, 48
+    call heap_alloc
+    mov QWORD PTR [rbp-64], rax
+    mov rcx, QWORD PTR [rbp-8]
+    mov QWORD PTR [rax], rcx
+    mov rdx, QWORD PTR [rbp-16]
+    mov DWORD PTR [rax+8], edx
+    mov edx, DWORD PTR [rbp-56]
+    mov DWORD PTR [rax+32], edx
+    mov rcx, QWORD PTR [rbp-64]
+    mov eax, DWORD PTR [g_nstk]
+    lea r11, QWORD PTR [g_stk]
+    mov QWORD PTR [r11 + rax*8], rcx
+    inc DWORD PTR [g_nstk]
+    xor ecx, ecx
+    lea rdx, QWORD PTR [s_cls_sticky]
+    lea r8, QWORD PTR [s_sticky_title]
+    mov r9d, WS_POPUP + WS_CAPTION + WS_SYSMENU + WS_THICKFRAME + WS_VISIBLE
+    mov eax, DWORD PTR [rbp-24]
+    mov DWORD PTR [rsp+32], eax
+    mov eax, DWORD PTR [rbp-32]
+    mov DWORD PTR [rsp+40], eax
+    mov eax, DWORD PTR [rbp-40]
+    mov DWORD PTR [rsp+48], eax
+    mov eax, DWORD PTR [rbp-48]
+    mov DWORD PTR [rsp+56], eax
+    mov QWORD PTR [rsp+64], 0
+    mov QWORD PTR [rsp+72], 0
+    mov rax, QWORD PTR [g_hInst]
+    mov QWORD PTR [rsp+80], rax
+    mov rax, QWORD PTR [rbp-64]
+    mov QWORD PTR [rsp+88], rax
+    call CreateWindowExW
+    test rax, rax
+    jnz cs_ok
+    dec DWORD PTR [g_nstk]
+    mov rcx, QWORD PTR [rbp-8]
+    call heap_free
+    mov rcx, QWORD PTR [rbp-64]
+    call heap_free
+cs_ok:
+    EPILOG
+create_sticky ENDP
+
+; Takes a snapshot of the active tab into a new sticky window
+send_sticky PROC FRAME
+    PROLOG
+    cmp DWORD PTR [g_nstk], MAX_STK
+    jae ss_done
+    cmp DWORD PTR [g_nTabs], 0
+    je ss_done
+    call sync_active
+    mov ecx, MAX_CCH * 2
+    call heap_alloc
+    mov QWORD PTR [rbp-8], rax
+    mov eax, DWORD PTR [g_active]
+    lea r11, QWORD PTR [g_tabs]
+    mov rcx, QWORD PTR [r11 + rax*8]
+    mov rdx, QWORD PTR [rcx]
+    mov QWORD PTR [rbp-16], rdx
+    mov eax, DWORD PTR [rcx+8]
+    mov QWORD PTR [rbp-24], rax
+    xor ecx, ecx
+ss_copy:
+    cmp rcx, QWORD PTR [rbp-24]
+    jae ss_copied
+    mov rdx, QWORD PTR [rbp-16]
+    mov ax, WORD PTR [rdx + rcx*2]
+    mov rdx, QWORD PTR [rbp-8]
+    mov WORD PTR [rdx + rcx*2], ax
+    inc rcx
+    jmp ss_copy
+ss_copied:
+    mov rdx, QWORD PTR [rbp-8]
+    mov rax, QWORD PTR [rbp-24]
+    mov WORD PTR [rdx + rax*2], 0
+    mov eax, DWORD PTR [g_nstk]
+    imul eax, eax, 32
+    add eax, 120
+    mov DWORD PTR [rbp-32], eax
+    mov rcx, QWORD PTR [rbp-8]
+    mov rdx, QWORD PTR [rbp-24]
+    mov r8d, DWORD PTR [rbp-32]
+    mov r9d, DWORD PTR [rbp-32]
+    mov DWORD PTR [rsp+32], 320
+    mov DWORD PTR [rsp+40], 360
+    mov DWORD PTR [rsp+48], 0
+    call create_sticky
+    call save_all
+ss_done:
+    EPILOG
+send_sticky ENDP
+
+; rcx = sticky record: removes it from the list and frees it
+sticky_remove PROC FRAME
+    PROLOG
+    mov QWORD PTR [rbp-8], rcx
+    lea r11, QWORD PTR [g_stk]
+    xor ecx, ecx
+sr_find:
+    cmp ecx, DWORD PTR [g_nstk]
+    jae sr_done
+    mov rax, QWORD PTR [r11 + rcx*8]
+    cmp rax, QWORD PTR [rbp-8]
+    je sr_found
+    inc ecx
+    jmp sr_find
+sr_found:
+    mov eax, DWORD PTR [g_nstk]
+    dec eax
+sr_shift:
+    cmp ecx, eax
+    jae sr_shifted
+    mov rdx, QWORD PTR [r11 + rcx*8 + 8]
+    mov QWORD PTR [r11 + rcx*8], rdx
+    inc ecx
+    jmp sr_shift
+sr_shifted:
+    dec DWORD PTR [g_nstk]
+    mov rcx, QWORD PTR [rbp-8]
+    mov rcx, QWORD PTR [rcx]
+    call heap_free
+    mov rcx, QWORD PTR [rbp-8]
+    call heap_free
+sr_done:
+    EPILOG
+sticky_remove ENDP
+
+; Re-renders every sticky in the current theme
+update_stickies PROC FRAME
+    PROLOG
+    mov DWORD PTR [rbp-8], 0
+us_loop:
+    mov eax, DWORD PTR [rbp-8]
+    cmp eax, DWORD PTR [g_nstk]
+    jae us_done
+    lea r11, QWORD PTR [g_stk]
+    mov rax, QWORD PTR [r11 + rax*8]
+    mov QWORD PTR [rbp-16], rax
+    mov rcx, QWORD PTR [rax+24]
+    call style_editor
+    mov rax, QWORD PTR [rbp-16]
+    mov rcx, QWORD PTR [rax+24]
+    mov rdx, QWORD PTR [rax]
+    mov r8d, DWORD PTR [rax+8]
+    call render_into
+    inc DWORD PTR [rbp-8]
+    jmp us_loop
+us_done:
+    EPILOG
+update_stickies ENDP
+
+; Writes every sticky's text and window placement, and removes files of closed stickies
+save_stickies PROC FRAME
+    PROLOG
+    mov DWORD PTR [rbp-8], 0
+sv_loop:
+    mov eax, DWORD PTR [rbp-8]
+    cmp eax, DWORD PTR [g_nstk]
+    jae sv_del
+    lea r11, QWORD PTR [g_stk]
+    mov rax, QWORD PTR [r11 + rax*8]
+    mov QWORD PTR [rbp-16], rax
+    mov ecx, DWORD PTR [rbp-8]
+    call path_for_sticky
+    mov rax, QWORD PTR [rbp-16]
+    mov rcx, QWORD PTR [rax]
+    mov rdx, QWORD PTR [rax+8]
+    call write_src
+    mov rax, QWORD PTR [rbp-16]
+    mov rcx, QWORD PTR [rax+16]
+    lea rdx, QWORD PTR [rbp-72]
+    call GetWindowRect
+    lea rcx, QWORD PTR [s_kx]
+    mov edx, DWORD PTR [rbp-8]
+    call key_build
+    lea rcx, QWORD PTR [g_key]
+    mov edx, DWORD PTR [rbp-72]
+    call set_int
+    lea rcx, QWORD PTR [s_ky]
+    mov edx, DWORD PTR [rbp-8]
+    call key_build
+    lea rcx, QWORD PTR [g_key]
+    mov edx, DWORD PTR [rbp-68]
+    call set_int
+    lea rcx, QWORD PTR [s_kw]
+    mov edx, DWORD PTR [rbp-8]
+    call key_build
+    lea rcx, QWORD PTR [g_key]
+    mov edx, DWORD PTR [rbp-64]
+    sub edx, DWORD PTR [rbp-72]
+    call set_int
+    lea rcx, QWORD PTR [s_kh]
+    mov edx, DWORD PTR [rbp-8]
+    call key_build
+    lea rcx, QWORD PTR [g_key]
+    mov edx, DWORD PTR [rbp-60]
+    sub edx, DWORD PTR [rbp-68]
+    call set_int
+    lea rcx, QWORD PTR [s_kp]
+    mov edx, DWORD PTR [rbp-8]
+    call key_build
+    mov rax, QWORD PTR [rbp-16]
+    lea rcx, QWORD PTR [g_key]
+    mov edx, DWORD PTR [rax+32]
+    call set_int
+    inc DWORD PTR [rbp-8]
+    jmp sv_loop
+sv_del:
+    mov eax, DWORD PTR [rbp-8]
+    cmp eax, MAX_STK
+    jae sv_count
+    mov ecx, eax
+    call path_for_sticky
+    lea rcx, QWORD PTR [g_path]
+    call DeleteFileW
+    inc DWORD PTR [rbp-8]
+    jmp sv_del
+sv_count:
+    lea rcx, QWORD PTR [k_stickies]
+    mov edx, DWORD PTR [g_nstk]
+    call set_int
+    EPILOG
+save_stickies ENDP
+
+; Restores stickies from the previous session
+load_stickies PROC FRAME
+    PROLOG
+    lea rcx, QWORD PTR [k_stickies]
+    xor edx, edx
+    call get_int
+    cmp eax, MAX_STK
+    jbe ls_count_ok
+    mov eax, MAX_STK
+ls_count_ok:
+    mov DWORD PTR [rbp-8], eax
+    mov DWORD PTR [rbp-16], 0
+ls_loop:
+    mov eax, DWORD PTR [rbp-16]
+    cmp eax, DWORD PTR [rbp-8]
+    jae ls_done
+    mov ecx, eax
+    call path_for_sticky
+    mov ecx, MAX_CCH * 2
+    call heap_alloc
+    mov QWORD PTR [rbp-24], rax
+    mov rcx, rax
+    mov edx, MAX_CCH - 1
+    call read_src
+    mov DWORD PTR [rbp-32], eax
+    mov eax, DWORD PTR [rbp-16]
+    imul eax, eax, 32
+    add eax, 120
+    mov DWORD PTR [rbp-40], eax
+    lea rcx, QWORD PTR [s_kx]
+    mov edx, DWORD PTR [rbp-16]
+    call key_build
+    lea rcx, QWORD PTR [g_key]
+    mov edx, DWORD PTR [rbp-40]
+    call get_int
+    mov DWORD PTR [rbp-48], eax
+    lea rcx, QWORD PTR [s_ky]
+    mov edx, DWORD PTR [rbp-16]
+    call key_build
+    lea rcx, QWORD PTR [g_key]
+    mov edx, DWORD PTR [rbp-40]
+    call get_int
+    mov DWORD PTR [rbp-56], eax
+    lea rcx, QWORD PTR [s_kw]
+    mov edx, DWORD PTR [rbp-16]
+    call key_build
+    lea rcx, QWORD PTR [g_key]
+    mov edx, 320
+    call get_int
+    mov DWORD PTR [rbp-64], eax
+    lea rcx, QWORD PTR [s_kh]
+    mov edx, DWORD PTR [rbp-16]
+    call key_build
+    lea rcx, QWORD PTR [g_key]
+    mov edx, 360
+    call get_int
+    mov DWORD PTR [rbp-72], eax
+    lea rcx, QWORD PTR [s_kp]
+    mov edx, DWORD PTR [rbp-16]
+    call key_build
+    lea rcx, QWORD PTR [g_key]
+    xor edx, edx
+    call get_int
+    mov DWORD PTR [rbp-80], eax
+    mov rcx, QWORD PTR [rbp-24]
+    mov edx, DWORD PTR [rbp-32]
+    mov r8d, DWORD PTR [rbp-48]
+    mov r9d, DWORD PTR [rbp-56]
+    mov eax, DWORD PTR [rbp-64]
+    mov DWORD PTR [rsp+32], eax
+    mov eax, DWORD PTR [rbp-72]
+    mov DWORD PTR [rsp+40], eax
+    mov eax, DWORD PTR [rbp-80]
+    mov DWORD PTR [rsp+48], eax
+    call create_sticky
+    inc DWORD PTR [rbp-16]
+    jmp ls_loop
+ls_done:
+    EPILOG
+load_stickies ENDP
+
+; Sticky window procedure
+sticky_proc PROC FRAME
+    PROLOG
+    mov QWORD PTR [rbp-8], rcx
+    mov eax, edx
+    mov QWORD PTR [rbp-16], rax
+    mov QWORD PTR [rbp-24], r8
+    mov QWORD PTR [rbp-32], r9
+    mov eax, DWORD PTR [rbp-16]
+    cmp eax, WM_CREATE
+    je sp_create
+    cmp eax, WM_SIZE
+    je sp_size
+    cmp eax, WM_SYSCOMMAND
+    je sp_syscmd
+    cmp eax, WM_EXITSIZEMOVE
+    je sp_moved
+    cmp eax, WM_CLOSE
+    je sp_close
+sp_default:
+    mov rcx, QWORD PTR [rbp-8]
+    mov edx, DWORD PTR [rbp-16]
+    mov r8, QWORD PTR [rbp-24]
+    mov r9, QWORD PTR [rbp-32]
+    call DefWindowProcW
+    EPILOG
+sp_zero:
+    xor eax, eax
+    EPILOG
+
+sp_create:
+    mov rax, QWORD PTR [rbp-32]
+    mov rax, QWORD PTR [rax]
+    mov QWORD PTR [rbp-40], rax
+    mov rcx, QWORD PTR [rbp-8]
+    mov edx, GWLP_USERDATA
+    mov r8, QWORD PTR [rbp-40]
+    call SetWindowLongPtrW
+    mov rax, QWORD PTR [rbp-40]
+    mov rcx, QWORD PTR [rbp-8]
+    mov QWORD PTR [rax+16], rcx
+    xor ecx, ecx
+    lea rdx, QWORD PTR [s_richedit]
+    xor r8d, r8d
+    mov r9d, WS_CHILD + WS_VISIBLE + WS_VSCROLL + ES_MULTILINE + ES_AUTOVSCROLL + ES_NOHIDESEL
+    mov DWORD PTR [rsp+32], 0
+    mov DWORD PTR [rsp+40], 0
+    mov DWORD PTR [rsp+48], 0
+    mov DWORD PTR [rsp+56], 0
+    mov rax, QWORD PTR [rbp-8]
+    mov QWORD PTR [rsp+64], rax
+    mov QWORD PTR [rsp+72], IDC_STICKY_EDITOR
+    mov rax, QWORD PTR [g_hInst]
+    mov QWORD PTR [rsp+80], rax
+    mov QWORD PTR [rsp+88], 0
+    call CreateWindowExW
+    mov rcx, QWORD PTR [rbp-40]
+    mov QWORD PTR [rcx+24], rax
+    mov rcx, rax
+    call style_editor
+    mov rax, QWORD PTR [rbp-40]
+    mov rcx, QWORD PTR [rax+24]
+    mov rdx, QWORD PTR [rax]
+    mov r8d, DWORD PTR [rax+8]
+    call render_into
+    mov rcx, QWORD PTR [rbp-8]
+    xor edx, edx
+    call GetSystemMenu
+    mov rcx, rax
+    mov edx, 0
+    mov r8d, IDM_PIN
+    lea r9, QWORD PTR [s_pin_text]
+    call AppendMenuW
+    mov rax, QWORD PTR [rbp-40]
+    mov rcx, QWORD PTR [rbp-8]
+    mov edx, DWORD PTR [rax+32]
+    call apply_pin
+    jmp sp_zero
+
+sp_size:
+    mov rcx, QWORD PTR [rbp-8]
+    mov edx, GWLP_USERDATA
+    call GetWindowLongPtrW
+    mov QWORD PTR [rbp-40], rax
+    mov rcx, QWORD PTR [rax+24]
+    movzx r9d, WORD PTR [rbp-32]
+    movzx eax, WORD PTR [rbp-30]
+    mov DWORD PTR [rsp+32], eax
+    mov DWORD PTR [rsp+40], 1
+    xor edx, edx
+    xor r8d, r8d
+    call MoveWindow
+    jmp sp_zero
+
+sp_syscmd:
+    mov eax, DWORD PTR [rbp-24]
+    and eax, 0FFF0h
+    cmp eax, IDM_PIN
+    jne sp_default
+    mov rcx, QWORD PTR [rbp-8]
+    mov edx, GWLP_USERDATA
+    call GetWindowLongPtrW
+    mov QWORD PTR [rbp-40], rax
+    xor DWORD PTR [rax+32], 1
+    mov rax, QWORD PTR [rbp-40]
+    mov rcx, QWORD PTR [rbp-8]
+    mov edx, DWORD PTR [rax+32]
+    call apply_pin
+    call save_all
+    jmp sp_zero
+
+sp_moved:
+    call save_all
+    jmp sp_zero
+
+sp_close:
+    mov rcx, QWORD PTR [rbp-8]
+    mov edx, GWLP_USERDATA
+    call GetWindowLongPtrW
+    mov rcx, rax
+    call sticky_remove
+    mov rcx, QWORD PTR [rbp-8]
+    call DestroyWindow
+    call save_all
+    jmp sp_zero
+sticky_proc ENDP
+
+; Registers the sticky window class
+reg_sticky_class PROC FRAME
+    PROLOG
+    mov DWORD PTR [rbp-96], 80
+    mov DWORD PTR [rbp-92], CS_HREDRAW + CS_VREDRAW
+    lea rax, QWORD PTR [sticky_proc]
+    mov QWORD PTR [rbp-88], rax
+    mov DWORD PTR [rbp-80], 0
+    mov DWORD PTR [rbp-76], 0
+    mov rax, QWORD PTR [g_hInst]
+    mov QWORD PTR [rbp-72], rax
+    mov QWORD PTR [rbp-64], 0
+    xor ecx, ecx
+    mov edx, IDC_ARROW
+    call LoadCursorW
+    mov QWORD PTR [rbp-56], rax
+    mov QWORD PTR [rbp-48], COLOR_WINDOW_PLUS1
+    mov QWORD PTR [rbp-40], 0
+    lea rax, QWORD PTR [s_cls_sticky]
+    mov QWORD PTR [rbp-32], rax
+    mov QWORD PTR [rbp-24], 0
+    lea rcx, QWORD PTR [rbp-96]
+    call RegisterClassExW
+    EPILOG
+reg_sticky_class ENDP
+
 
 ; Main window procedure
 main_proc PROC FRAME
@@ -1706,6 +2323,8 @@ mp_command:
     je mc_next
     cmp eax, IDM_TOGGLE_VIEW
     je mc_toggle
+    cmp eax, IDM_SEND_STICKY
+    je mc_sticky
     cmp eax, IDM_EXIT
     je mc_exit
     cmp eax, IDM_UNDO
@@ -1751,6 +2370,9 @@ mc_next:
     jmp mp_zero
 mc_toggle:
     call toggle_view
+    jmp mp_zero
+mc_sticky:
+    call send_sticky
     jmp mp_zero
 mc_exit:
     mov rcx, QWORD PTR [g_hMain]
@@ -1855,6 +2477,7 @@ start PROC FRAME
     lea rcx, QWORD PTR [rbp-96]
     call RegisterClassExW
 
+    call reg_sticky_class
     mov rcx, QWORD PTR [g_hInst]
     mov edx, IDR_ACCEL
     call LoadAcceleratorsW

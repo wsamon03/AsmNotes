@@ -403,6 +403,107 @@ def session_formatted_restore(data):
         app.kill()
 
 
+WS_EX_TOPMOST = 0x00000008
+GWL_EXSTYLE = -20
+WM_SYSCOMMAND = 0x0112
+IDM_PIN = 6000
+user32.GetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int]
+user32.GetWindowLongW.restype = wintypes.LONG
+user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+user32.IsWindow.argtypes = [wintypes.HWND]
+user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+
+
+def stickies_of(pid):
+    found = []
+
+    def cb(hwnd, _lp):
+        buf = ctypes.create_unicode_buffer(64)
+        user32.GetClassNameW(hwnd, buf, 64)
+        owner = wintypes.DWORD(0)
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
+        if buf.value == "AsmSticky" and owner.value == pid:
+            found.append(hwnd)
+        return True
+
+    user32.EnumWindows(WNDENUMPROC(cb), 0)
+    return found
+
+
+def rect_of(hwnd):
+    rc = wintypes.RECT()
+    user32.GetWindowRect(hwnd, ctypes.byref(rc))
+    return (rc.left, rc.top, rc.right, rc.bottom)
+
+
+def session_stickies(_unused):
+    print("\n== Session 6: sticky notes ==")
+    data = Path(tempfile.mkdtemp())
+    app = App(data)
+    try:
+        app.focus()
+        type_text(app.editor, "# Sticky\r\n**hello** world")
+        send_keys("^+s")
+        wait_for(lambda: len(stickies_of(app.proc.pid)) == 1, timeout=3)
+        found = stickies_of(app.proc.pid)
+        check("Ctrl+Shift+S opens one sticky window", len(found) == 1, len(found))
+        if not found:
+            return
+        st = found[0]
+        se = child(st, "RICHEDIT50W")
+        check("sticky has a formatted editor", bool(se))
+        text = window_text(se)
+        check("sticky shows formatted text", "Sticky" in text and "#" not in text and "**" not in text, repr(text))
+        fmt_i = text.replace("\r\n", "\r")
+        bold_at = fmt_i.index("hello")
+        check("sticky renders bold text", bool(char_format_at(se, bold_at, app.proc.pid).dwEffects & CFE_BOLD))
+
+        app.focus()
+        type_text(app.editor, "XYZ")
+        time.sleep(0.3)
+        check("sticky is a snapshot of the tab", "XYZ" not in window_text(se), repr(window_text(se)))
+
+        user32.SendMessageW(st, WM_SYSCOMMAND, IDM_PIN, 0)
+        time.sleep(0.4)
+        pinned = bool(user32.GetWindowLongW(st, GWL_EXSTYLE) & WS_EX_TOPMOST)
+        check("system menu pins the sticky on top", pinned)
+
+        app.win.menu_select("View->Theme->Midnight")
+        time.sleep(0.6)
+        check("sticky follows the theme", editor_bg_pixel(se) == MIDNIGHT_BG, hex(editor_bg_pixel(se)))
+
+        before = rect_of(st)
+        time.sleep(1.0)
+        exited, code = app.close()
+        check("main window closes with stickies open", exited and code == 0, code)
+    finally:
+        app.kill()
+
+    app = App(data)
+    try:
+        wait_for(lambda: len(stickies_of(app.proc.pid)) == 1, timeout=3)
+        found = stickies_of(app.proc.pid)
+        check("sticky is restored on relaunch", len(found) == 1, len(found))
+        if found:
+            st = found[0]
+            se = child(st, "RICHEDIT50W")
+            check("restored sticky keeps its text", "Sticky" in window_text(se) and "XYZ" not in window_text(se),
+                  repr(window_text(se)))
+            check("restored sticky keeps its pin", bool(user32.GetWindowLongW(st, GWL_EXSTYLE) & WS_EX_TOPMOST))
+            check("restored sticky keeps its position", rect_of(st) == before, (rect_of(st), before))
+            check("restored sticky follows the restored theme", editor_bg_pixel(se) == MIDNIGHT_BG,
+                  hex(editor_bg_pixel(se)))
+            user32.SendMessageW(st, WM_CLOSE, 0, 0)
+            time.sleep(0.8)
+            check("closing a sticky removes it", len(stickies_of(app.proc.pid)) == 0)
+        exited, code = app.close()
+        check("relaunched app exits cleanly", exited and code == 0, code)
+    finally:
+        app.kill()
+
+    check("closed sticky's file is removed", not (data / "AsmNotes" / "sticky0.md").exists())
+
+
 def main():
     if not EXE.exists():
         print("FAIL exe not built: " + str(EXE))
@@ -414,6 +515,7 @@ def main():
         session_three(data)
         session_markdown(data)
         session_formatted_restore(data)
+        session_stickies(data)
 
     print()
     if failures:
