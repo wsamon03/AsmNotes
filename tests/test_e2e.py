@@ -504,6 +504,37 @@ def session_stickies(_unused):
     check("closed sticky's file is removed", not (data / "AsmNotes" / "sticky0.md").exists())
 
 
+def session_limits(_unused):
+    print("\n== Session 7: 32-tab and 32-sticky limits ==")
+    data = Path(tempfile.mkdtemp())
+    app = App(data)
+    try:
+        app.focus()
+        for _ in range(31):
+            send_keys("^t")
+            time.sleep(0.12)
+        time.sleep(0.5)
+        check("32 tabs can be opened", app.tab_count() == 32, app.tab_count())
+        send_keys("^t")
+        time.sleep(0.5)
+        check("a 33rd tab is refused", app.tab_count() == 32, app.tab_count())
+
+        for _ in range(32):
+            send_keys("^+s")
+            time.sleep(0.25)
+        wait_for(lambda: len(stickies_of(app.proc.pid)) == 32, timeout=5)
+        check("32 stickies can be opened", len(stickies_of(app.proc.pid)) == 32,
+              len(stickies_of(app.proc.pid)))
+        send_keys("^+s")
+        time.sleep(0.8)
+        check("a 33rd sticky is refused", len(stickies_of(app.proc.pid)) == 32,
+              len(stickies_of(app.proc.pid)))
+        exited, code = app.close()
+        check("app exits cleanly with 32 tabs and stickies", exited and code == 0, code)
+    finally:
+        app.kill()
+
+
 def main():
     if not EXE.exists():
         print("FAIL exe not built: " + str(EXE))
@@ -516,6 +547,7 @@ def main():
         session_markdown(data)
         session_formatted_restore(data)
         session_stickies(data)
+        session_limits(data)
 
     print()
     if failures:

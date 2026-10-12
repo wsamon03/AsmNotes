@@ -67,6 +67,20 @@ EXTERN DeleteFileW:PROC
 EXTERN WideCharToMultiByte:PROC
 EXTERN MultiByteToWideChar:PROC
 EXTERN GetSystemMenu:PROC
+EXTERN GetDpiForWindow:PROC
+EXTERN DefSubclassProc:PROC
+EXTERN SetWindowSubclass:PROC
+EXTERN GetProcAddress:PROC
+EXTERN DrawMenuBar:PROC
+EXTERN EndPaint:PROC
+EXTERN BeginPaint:PROC
+EXTERN GetClientRect:PROC
+EXTERN DeleteObject:PROC
+EXTERN CreateSolidBrush:PROC
+EXTERN SetTextColor:PROC
+EXTERN SetBkMode:PROC
+EXTERN DrawTextW:PROC
+EXTERN FillRect:PROC
 EXTERN AppendMenuW:PROC
 EXTERN CheckMenuItem:PROC
 EXTERN SetWindowLongPtrW:PROC
@@ -150,6 +164,16 @@ s_consolas  WORD 'C','o','n','s','o','l','a','s',0
 g_key       WORD 32 DUP(0)
 g_stk       QWORD MAX_STK DUP(0)
 g_nstk      DWORD 0
+g_dpi       DWORD 96
+g_tabh      DWORD 32
+g_pSetAppMode QWORD 0
+g_pFlushMenu QWORD 0
+g_hUx       QWORD 0
+g_dtitle    WORD 64 DUP(0)
+s_uxtheme   WORD 'u','x','t','h','e','m','e','.','d','l','l',0
+s_unpin_txt WORD 'U','n','p','i','n',0
+s_pin_txt   WORD 'P','i','n',0
+s_close_txt WORD 'X',0
 g_rhEdit    QWORD 0
 fmt_stpath  WORD '%','s',5Ch,'s','t','i','c','k','y','%','d','.','m','d',0
 fmt_key     WORD '%','s','%','d',0
@@ -645,6 +669,16 @@ st_light:
     xor edx, edx
     mov r8d, 1
     call InvalidateRect
+    mov rcx, QWORD PTR [g_hTabs]
+    xor edx, edx
+    mov r8d, 1
+    call InvalidateRect
+    mov ecx, 3
+    cmp DWORD PTR [rbp-16], 0
+    je st_mode
+    mov ecx, 2
+st_mode:
+    call apply_app_mode
     call update_stickies
     cmp DWORD PTR [g_view], 0
     je st_done
@@ -2202,6 +2236,171 @@ reg_sticky_class PROC FRAME
 reg_sticky_class ENDP
 
 
+
+; eax = value in pixels at 96 dpi -> eax scaled to the window's dpi
+scale_px PROC
+    imul eax, DWORD PTR [g_dpi]
+    xor edx, edx
+    mov ecx, 96
+    div ecx
+    ret
+scale_px ENDP
+
+; -> rax = pointer to the palette entry for the active theme
+palette_ptr PROC
+    mov eax, DWORD PTR [g_theme]
+    shl eax, 4
+    lea rdx, QWORD PTR [g_palette]
+    add rax, rdx
+    ret
+palette_ptr ENDP
+
+; rcx = device context, rdx = RECT*, r8d = colour
+fill_rect_color PROC FRAME
+    PROLOG
+    mov QWORD PTR [rbp-8], rcx
+    mov QWORD PTR [rbp-16], rdx
+    mov ecx, r8d
+    call CreateSolidBrush
+    mov QWORD PTR [rbp-24], rax
+    mov rcx, QWORD PTR [rbp-8]
+    mov rdx, QWORD PTR [rbp-16]
+    mov r8, QWORD PTR [rbp-24]
+    call FillRect
+    mov rcx, QWORD PTR [rbp-24]
+    call DeleteObject
+    EPILOG
+fill_rect_color ENDP
+
+; rcx = DRAWITEMSTRUCT* for one tab of the tab strip
+draw_tab PROC FRAME
+    PROLOG
+    mov QWORD PTR [rbp-8], rcx
+    mov eax, DWORD PTR [rcx+8]
+    mov DWORD PTR [rbp-16], eax
+    mov QWORD PTR [rbp-120], 1
+    mov QWORD PTR [rbp-112], 0
+    lea rax, QWORD PTR [g_dtitle]
+    mov QWORD PTR [rbp-104], rax
+    mov DWORD PTR [rbp-96], 64
+    mov DWORD PTR [rbp-92], 0
+    mov QWORD PTR [rbp-88], 0
+    mov rcx, QWORD PTR [g_hTabs]
+    mov edx, TCM_GETITEMW
+    mov r8d, DWORD PTR [rbp-16]
+    lea r9, QWORD PTR [rbp-120]
+    call SendMessageW
+    call palette_ptr
+    mov rdx, rax
+    mov ecx, DWORD PTR [rdx]
+    mov DWORD PTR [rbp-24], ecx
+    mov ecx, DWORD PTR [rdx+4]
+    mov DWORD PTR [rbp-32], ecx
+    mov ecx, DWORD PTR [rdx+8]
+    mov DWORD PTR [rbp-40], ecx
+    mov ecx, DWORD PTR [rdx+12]
+    mov DWORD PTR [rbp-48], ecx
+    mov eax, DWORD PTR [rbp-16]
+    xor ecx, ecx
+    cmp eax, DWORD PTR [g_active]
+    jne dt_unselected
+    mov ecx, 1
+dt_unselected:
+    mov DWORD PTR [rbp-56], ecx
+    mov rcx, QWORD PTR [rbp-8]
+    mov rax, QWORD PTR [rcx+32]
+    mov QWORD PTR [rbp-64], rax
+    lea rdx, QWORD PTR [rcx+40]
+    mov r8d, DWORD PTR [rbp-24]
+    mov rcx, QWORD PTR [rbp-64]
+    call fill_rect_color
+    cmp DWORD PTR [rbp-56], 0
+    je dt_text
+    mov rcx, QWORD PTR [rbp-8]
+    mov eax, DWORD PTR [rcx+40]
+    mov DWORD PTR [rbp-160], eax
+    mov eax, DWORD PTR [rcx+48]
+    mov DWORD PTR [rbp-152], eax
+    mov eax, DWORD PTR [rcx+52]
+    mov DWORD PTR [rbp-148], eax
+    mov DWORD PTR [rbp-84], eax
+    mov eax, 3
+    call scale_px
+    mov edx, DWORD PTR [rbp-84]
+    sub edx, eax
+    mov DWORD PTR [rbp-156], edx
+    mov rcx, QWORD PTR [rbp-64]
+    lea rdx, QWORD PTR [rbp-160]
+    mov r8d, DWORD PTR [rbp-40]
+    call fill_rect_color
+dt_text:
+    mov rcx, QWORD PTR [rbp-64]
+    mov edx, 1
+    call SetBkMode
+    mov rcx, QWORD PTR [rbp-64]
+    mov edx, DWORD PTR [rbp-32]
+    cmp DWORD PTR [rbp-56], 0
+    jne dt_color
+    mov edx, DWORD PTR [rbp-48]
+dt_color:
+    call SetTextColor
+    mov rcx, QWORD PTR [rbp-64]
+    lea rdx, QWORD PTR [g_dtitle]
+    mov r8d, -1
+    mov rax, QWORD PTR [rbp-8]
+    lea r9, QWORD PTR [rax+40]
+    mov DWORD PTR [rsp+32], 8025h
+    call DrawTextW
+    EPILOG
+draw_tab ENDP
+
+; Subclass for the tab strip: paints the background in the theme colour
+tabs_subclass PROC FRAME
+    PROLOG
+    mov QWORD PTR [rbp-8], rcx
+    mov eax, edx
+    mov QWORD PTR [rbp-16], rax
+    mov QWORD PTR [rbp-24], r8
+    mov QWORD PTR [rbp-32], r9
+    cmp eax, WM_ERASEBKGND
+    jne ts_default
+    lea rdx, QWORD PTR [rbp-56]
+    mov rcx, QWORD PTR [rbp-8]
+    call GetClientRect
+    call palette_ptr
+    mov r8d, DWORD PTR [rax]
+    mov rcx, QWORD PTR [rbp-24]
+    lea rdx, QWORD PTR [rbp-56]
+    call fill_rect_color
+    mov eax, 1
+    EPILOG
+ts_default:
+    mov rcx, QWORD PTR [rbp-8]
+    mov edx, DWORD PTR [rbp-16]
+    mov r8, QWORD PTR [rbp-24]
+    mov r9, QWORD PTR [rbp-32]
+    call DefSubclassProc
+    EPILOG
+tabs_subclass ENDP
+
+
+; ecx = 2 for dark menus, 3 for light menus (uxtheme ordinals 135 and 136)
+apply_app_mode PROC FRAME
+    PROLOG
+    mov DWORD PTR [rbp-8], ecx
+    cmp QWORD PTR [g_pSetAppMode], 0
+    je am_draw
+    mov ecx, DWORD PTR [rbp-8]
+    call QWORD PTR [g_pSetAppMode]
+    cmp QWORD PTR [g_pFlushMenu], 0
+    je am_draw
+    call QWORD PTR [g_pFlushMenu]
+am_draw:
+    mov rcx, QWORD PTR [g_hMain]
+    call DrawMenuBar
+    EPILOG
+apply_app_mode ENDP
+
 ; Main window procedure
 main_proc PROC FRAME
     PROLOG
@@ -2223,6 +2422,8 @@ main_proc PROC FRAME
     je mp_timer
     cmp eax, WM_SETFOCUS
     je mp_focus
+    cmp eax, WM_DRAWITEM
+    je mp_drawitem
     cmp eax, WM_CLOSE
     je mp_close
     cmp eax, WM_DESTROY
@@ -2241,14 +2442,23 @@ mp_zero:
 mp_create:
     mov rax, QWORD PTR [rbp-8]
     mov QWORD PTR [g_hMain], rax
+    mov rcx, rax
+    call GetDpiForWindow
+    mov DWORD PTR [g_dpi], eax
+    imul eax, eax, 32
+    xor edx, edx
+    mov ecx, 96
+    div ecx
+    mov DWORD PTR [g_tabh], eax
     xor ecx, ecx
     lea rdx, QWORD PTR [s_tabclass]
     xor r8d, r8d
-    mov r9d, WS_CHILD + WS_VISIBLE + WS_TABSTOP
+    mov r9d, WS_CHILD + WS_VISIBLE + WS_TABSTOP + TCS_OWNERDRAWFIXED
     mov DWORD PTR [rsp+32], 0
     mov DWORD PTR [rsp+40], 0
     mov DWORD PTR [rsp+48], 0
-    mov DWORD PTR [rsp+56], TABH
+    mov eax, DWORD PTR [g_tabh]
+    mov DWORD PTR [rsp+56], eax
     mov rax, QWORD PTR [g_hMain]
     mov QWORD PTR [rsp+64], rax
     mov QWORD PTR [rsp+72], IDC_TABS
@@ -2257,13 +2467,30 @@ mp_create:
     mov QWORD PTR [rsp+88], 0
     call CreateWindowExW
     mov QWORD PTR [g_hTabs], rax
+    mov eax, 160
+    call scale_px
+    mov r8d, eax
+    mov eax, DWORD PTR [g_tabh]
+    shl eax, 16
+    or eax, r8d
+    mov r9, rax
+    mov rcx, QWORD PTR [g_hTabs]
+    mov edx, TCM_SETITEMSIZE
+    xor r8d, r8d
+    call SendMessageW
+    mov rcx, QWORD PTR [g_hTabs]
+    lea rdx, QWORD PTR [tabs_subclass]
+    mov r8d, 1
+    xor r9d, r9d
+    call SetWindowSubclass
 
     mov ecx, WS_EX_CLIENTEDGE
     lea rdx, QWORD PTR [s_richedit]
     xor r8d, r8d
     mov r9d, WS_CHILD + WS_VISIBLE + WS_VSCROLL + WS_TABSTOP + ES_MULTILINE + ES_AUTOVSCROLL + ES_WANTRETURN + ES_NOHIDESEL
     mov DWORD PTR [rsp+32], 0
-    mov DWORD PTR [rsp+40], TABH
+    mov eax, DWORD PTR [g_tabh]
+    mov DWORD PTR [rsp+40], eax
     mov DWORD PTR [rsp+48], 0
     mov DWORD PTR [rsp+56], 0
     mov rax, QWORD PTR [g_hMain]
@@ -2291,7 +2518,7 @@ mp_size:
     mov eax, DWORD PTR [rbp-32]
     shr eax, 16
     mov DWORD PTR [rbp-48], eax
-    sub eax, TABH
+    sub eax, DWORD PTR [g_tabh]
     jnc ms_h_ok
     xor eax, eax
 ms_h_ok:
@@ -2300,12 +2527,13 @@ ms_h_ok:
     xor edx, edx
     xor r8d, r8d
     mov r9d, DWORD PTR [rbp-40]
-    mov DWORD PTR [rsp+32], TABH
+    mov eax, DWORD PTR [g_tabh]
+    mov DWORD PTR [rsp+32], eax
     mov DWORD PTR [rsp+40], 1
     call MoveWindow
     mov rcx, QWORD PTR [g_hEdit]
     xor edx, edx
-    mov r8d, TABH
+    mov r8d, DWORD PTR [g_tabh]
     mov r9d, DWORD PTR [rbp-40]
     mov eax, DWORD PTR [rbp-56]
     mov DWORD PTR [rsp+32], eax
@@ -2436,6 +2664,13 @@ mp_close:
     call DestroyWindow
     jmp mp_zero
 
+mp_drawitem:
+    cmp DWORD PTR [rbp-24], IDC_TABS
+    jne mp_zero
+    mov rcx, QWORD PTR [rbp-32]
+    call draw_tab
+    mov eax, 1
+    EPILOG
 mp_destroy:
     xor ecx, ecx
     call PostQuitMessage
@@ -2477,6 +2712,17 @@ start PROC FRAME
     lea rcx, QWORD PTR [rbp-96]
     call RegisterClassExW
 
+    lea rcx, QWORD PTR [s_uxtheme]
+    call LoadLibraryW
+    mov QWORD PTR [g_hUx], rax
+    mov rcx, rax
+    mov edx, 135
+    call GetProcAddress
+    mov QWORD PTR [g_pSetAppMode], rax
+    mov rcx, QWORD PTR [g_hUx]
+    mov edx, 136
+    call GetProcAddress
+    mov QWORD PTR [g_pFlushMenu], rax
     call reg_sticky_class
     mov rcx, QWORD PTR [g_hInst]
     mov edx, IDR_ACCEL
