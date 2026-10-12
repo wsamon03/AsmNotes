@@ -239,6 +239,170 @@ def session_three(data):
         app.kill()
 
 
+EM_GETCHARFORMAT = 0x043A
+EM_SETSEL = 0x00B1
+SCF_SELECTION = 1
+CFE_BOLD = 0x0001
+CFE_ITALIC = 0x0002
+
+
+class CHARFORMAT2W(ctypes.Structure):
+    _fields_ = [
+        ("cbSize", wintypes.UINT),
+        ("dwMask", wintypes.DWORD),
+        ("dwEffects", wintypes.DWORD),
+        ("yHeight", wintypes.LONG),
+        ("yOffset", wintypes.LONG),
+        ("crTextColor", wintypes.DWORD),
+        ("bCharSet", ctypes.c_ubyte),
+        ("bPitchAndFamily", ctypes.c_ubyte),
+        ("szFaceName", wintypes.WCHAR * 32),
+        ("wWeight", wintypes.WORD),
+        ("sSpacing", ctypes.c_short),
+        ("crBackColor", wintypes.DWORD),
+        ("lcid", wintypes.DWORD),
+        ("dwReserved", wintypes.DWORD),
+        ("sStyle", ctypes.c_short),
+        ("wKerning", wintypes.WORD),
+        ("bUnderlineType", ctypes.c_ubyte),
+        ("bAnimation", ctypes.c_ubyte),
+        ("bRevAuthor", ctypes.c_ubyte),
+        ("bReserved1", ctypes.c_ubyte),
+    ]
+
+
+kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+kernel32.OpenProcess.restype = wintypes.HANDLE
+kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+kernel32.VirtualAllocEx.restype = ctypes.c_void_p
+kernel32.VirtualAllocEx.argtypes = [wintypes.HANDLE, ctypes.c_void_p, ctypes.c_size_t, wintypes.DWORD, wintypes.DWORD]
+kernel32.WriteProcessMemory.argtypes = [wintypes.HANDLE, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p]
+kernel32.ReadProcessMemory.argtypes = [wintypes.HANDLE, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p]
+
+PROCESS_VM_ALL = 0x0008 | 0x0010 | 0x0020 | 0x0400
+MEM_COMMIT_RESERVE = 0x3000
+PAGE_READWRITE = 0x04
+
+_remote = {}
+
+
+def remote_buffer(pid, size=256):
+    if pid not in _remote:
+        h = kernel32.OpenProcess(PROCESS_VM_ALL, False, pid)
+        addr = kernel32.VirtualAllocEx(h, None, size, MEM_COMMIT_RESERVE, PAGE_READWRITE)
+        _remote[pid] = (h, addr)
+    return _remote[pid]
+
+
+def char_format_at(editor, index, pid):
+    """Reads the character format of one character.
+
+    EM_GETCHARFORMAT writes through a pointer, so the buffer must live in the app's
+    address space, which is why it is allocated remotely and copied back.
+    """
+    user32.SendMessageW(editor, EM_SETSEL, index, index + 1)
+    h, addr = remote_buffer(pid)
+    cf = CHARFORMAT2W()
+    cf.cbSize = ctypes.sizeof(CHARFORMAT2W)
+    kernel32.WriteProcessMemory(h, addr, ctypes.addressof(cf), ctypes.sizeof(CHARFORMAT2W), None)
+    user32.SendMessageW(editor, EM_GETCHARFORMAT, SCF_SELECTION, addr)
+    out = CHARFORMAT2W()
+    kernel32.ReadProcessMemory(h, addr, ctypes.addressof(out), ctypes.sizeof(CHARFORMAT2W), None)
+    return out
+
+
+def type_text(editor, text):
+    for ch in text:
+        if ch == "\n":
+            continue
+        if ch == "\r":
+            send_keys("{ENTER}")
+        else:
+            user32.PostMessageW(editor, WM_CHAR, ord(ch), 0)
+        time.sleep(0.02)
+    time.sleep(0.3)
+
+
+MD_SOURCE = (
+    "# Title\r\n"
+    "*it* and **bold** and `code`\r\n"
+    "- one\r\n"
+    "- two\r\n"
+    "\\*not italic\\* [site](http://x)"
+)
+
+
+def session_markdown(data):
+    print("\n== Session 4: Markdown raw and formatted views ==")
+    app = App(data)
+    try:
+        app.focus()
+        type_text(app.editor, MD_SOURCE)
+        raw = app.text()
+        check("raw view keeps the Markdown source", raw == MD_SOURCE, repr(raw))
+
+        send_keys("^m")
+        time.sleep(0.8)
+        fmt = app.text()
+        check("formatted view strips heading markers", "#" not in fmt, repr(fmt))
+        check("formatted view strips bold markers", "**" not in fmt)
+        check("formatted view strips code markers", "`" not in fmt)
+        check("formatted view drops link URLs", "http" not in fmt and "(" not in fmt)
+        check("formatted view keeps link text", "site" in fmt)
+        check("formatted view shows bullets", "•" in fmt)
+        check("escaped asterisks stay literal", "*not italic*" in fmt)
+
+        fmt_i = fmt.replace("\r\n", "\r")
+        title = char_format_at(app.editor, 0, app.proc.pid)
+        check("heading is larger than body text", title.yHeight > 300 and (title.dwEffects & CFE_BOLD),
+              (title.yHeight, hex(title.dwEffects)))
+        bold_at = fmt_i.index("bold")
+        check("**bold** renders bold", bool(char_format_at(app.editor, bold_at, app.proc.pid).dwEffects & CFE_BOLD))
+        it_at = fmt_i.index("it and")
+        check("*it* renders italic", bool(char_format_at(app.editor, it_at, app.proc.pid).dwEffects & CFE_ITALIC))
+        code_at = fmt_i.index("code")
+        check("`code` uses the monospace font", char_format_at(app.editor, code_at, app.proc.pid).szFaceName == "Consolas",
+              char_format_at(app.editor, code_at, app.proc.pid).szFaceName)
+
+        before = app.text()
+        app.focus()
+        send_keys("zz", pause=0.05)
+        time.sleep(0.3)
+        check("formatted view is read-only", app.text() == before, repr(app.text()))
+
+        send_keys("^m")
+        time.sleep(0.6)
+        check("toggling back restores the exact source", app.text() == MD_SOURCE, repr(app.text()))
+
+        send_keys("^m")
+        time.sleep(1.5)
+        exited, code = app.close()
+        check("Markdown session exits cleanly", exited and code == 0, code)
+    finally:
+        app.kill()
+
+    saved = (data / "AsmNotes" / "tab0.md").read_bytes().decode("utf-8")
+    check("the file keeps Markdown source, not rendered text", saved == MD_SOURCE, repr(saved[:60]))
+
+
+def session_formatted_restore(data):
+    print("\n== Session 5: formatted view is restored on relaunch ==")
+    app = App(data)
+    try:
+        check("formatted view survives a restart", "•" in app.text() and "**" not in app.text(),
+              repr(app.text()))
+        app.focus()
+        send_keys("^m")
+        time.sleep(0.6)
+        check("toggling from the restored view shows the raw source", app.text().startswith("# Title"),
+              repr(app.text()[:20]))
+        send_keys("^m")
+        time.sleep(1.5)
+        app.close()
+    finally:
+        app.kill()
+
+
 def main():
     if not EXE.exists():
         print("FAIL exe not built: " + str(EXE))
@@ -248,6 +412,8 @@ def main():
         session_one(data)
         session_two(data)
         session_three(data)
+        session_markdown(data)
+        session_formatted_restore(data)
 
     print()
     if failures:
