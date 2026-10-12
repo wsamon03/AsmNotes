@@ -1739,15 +1739,8 @@ ap_set:
     call SetWindowPos
     mov rcx, QWORD PTR [rbp-8]
     xor edx, edx
-    call GetSystemMenu
-    mov rcx, rax
-    mov edx, IDM_PIN
-    xor r8d, r8d
-    cmp DWORD PTR [rbp-16], 0
-    je ap_unchecked
-    mov r8d, 8
-ap_unchecked:
-    call CheckMenuItem
+    mov r8d, 1
+    call InvalidateRect
     EPILOG
 apply_pin ENDP
 
@@ -1790,10 +1783,10 @@ create_sticky PROC FRAME
     lea r11, QWORD PTR [g_stk]
     mov QWORD PTR [r11 + rax*8], rcx
     inc DWORD PTR [g_nstk]
-    xor ecx, ecx
+    mov ecx, WS_EX_TOOLWINDOW
     lea rdx, QWORD PTR [s_cls_sticky]
     lea r8, QWORD PTR [s_sticky_title]
-    mov r9d, WS_POPUP + WS_CAPTION + WS_SYSMENU + WS_THICKFRAME + WS_VISIBLE
+    mov r9d, WS_POPUP + WS_THICKFRAME + WS_VISIBLE
     mov eax, DWORD PTR [rbp-24]
     mov DWORD PTR [rsp+32], eax
     mov eax, DWORD PTR [rbp-32]
@@ -2082,6 +2075,282 @@ ls_done:
     EPILOG
 load_stickies ENDP
 
+
+; rcx = sticky window, rdx = screen point: hit-test code for the custom frame
+sticky_hit PROC FRAME
+    PROLOG
+    mov QWORD PTR [rbp-8], rcx
+    mov QWORD PTR [rbp-16], rdx
+    lea rdx, QWORD PTR [rbp-56]
+    mov rcx, QWORD PTR [rbp-8]
+    call GetWindowRect
+    movsx eax, WORD PTR [rbp-16]
+    sub eax, DWORD PTR [rbp-56]
+    mov DWORD PTR [rbp-24], eax
+    movsx eax, WORD PTR [rbp-14]
+    sub eax, DWORD PTR [rbp-52]
+    mov DWORD PTR [rbp-28], eax
+    mov eax, DWORD PTR [rbp-48]
+    sub eax, DWORD PTR [rbp-56]
+    mov DWORD PTR [rbp-32], eax
+    mov eax, DWORD PTR [rbp-44]
+    sub eax, DWORD PTR [rbp-52]
+    mov DWORD PTR [rbp-36], eax
+    mov eax, 6
+    call scale_px
+    mov DWORD PTR [rbp-40], eax
+    mov eax, 26
+    call scale_px
+    mov DWORD PTR [rbp-88], eax
+    mov eax, DWORD PTR [rbp-24]
+    mov ecx, DWORD PTR [rbp-40]
+    xor r8d, r8d
+    cmp eax, ecx
+    jge sh_nl
+    mov r8d, 1
+sh_nl:
+    mov edx, DWORD PTR [rbp-32]
+    sub edx, ecx
+    xor r9d, r9d
+    cmp eax, edx
+    jl sh_nr
+    mov r9d, 1
+sh_nr:
+    mov eax, DWORD PTR [rbp-28]
+    xor r10d, r10d
+    cmp eax, ecx
+    jge sh_nt
+    mov r10d, 1
+sh_nt:
+    mov edx, DWORD PTR [rbp-36]
+    sub edx, ecx
+    xor r11d, r11d
+    cmp eax, edx
+    jl sh_nb
+    mov r11d, 1
+sh_nb:
+    test r10d, r10d
+    jz sh_b_check
+    test r8d, r8d
+    jz sh_t_r
+    mov eax, 13
+    EPILOG
+sh_t_r:
+    test r9d, r9d
+    jz sh_t_only
+    mov eax, 14
+    EPILOG
+sh_t_only:
+    mov eax, 12
+    EPILOG
+sh_b_check:
+    test r11d, r11d
+    jz sh_side
+    test r8d, r8d
+    jz sh_b_r
+    mov eax, 16
+    EPILOG
+sh_b_r:
+    test r9d, r9d
+    jz sh_b_only
+    mov eax, 17
+    EPILOG
+sh_b_only:
+    mov eax, 15
+    EPILOG
+sh_side:
+    test r8d, r8d
+    jz sh_r
+    mov eax, 10
+    EPILOG
+sh_r:
+    test r9d, r9d
+    jz sh_inside
+    mov eax, 11
+    EPILOG
+sh_inside:
+    mov eax, DWORD PTR [rbp-28]
+    mov ecx, DWORD PTR [rbp-40]
+    add ecx, DWORD PTR [rbp-88]
+    cmp eax, ecx
+    jge sh_client
+    mov edx, DWORD PTR [rbp-32]
+    sub edx, DWORD PTR [rbp-40]
+    sub edx, DWORD PTR [rbp-88]
+    mov ecx, DWORD PTR [rbp-24]
+    cmp ecx, edx
+    jge sh_client
+    sub edx, DWORD PTR [rbp-88]
+    cmp ecx, edx
+    jge sh_client
+    mov eax, 2
+    EPILOG
+sh_client:
+    mov eax, 1
+    EPILOG
+sticky_hit ENDP
+
+; rcx = sticky window: paints the custom caption, the border and the three controls
+sticky_paint PROC FRAME
+    PROLOG
+    mov QWORD PTR [rbp-24], rcx
+    lea rdx, QWORD PTR [rbp-160]
+    call BeginPaint
+    mov QWORD PTR [rbp-32], rax
+    mov rcx, QWORD PTR [rbp-24]
+    lea rdx, QWORD PTR [rbp-88]
+    call GetClientRect
+    mov rcx, QWORD PTR [rbp-24]
+    mov edx, GWLP_USERDATA
+    call GetWindowLongPtrW
+    mov QWORD PTR [rbp-16], rax
+    mov eax, 6
+    call scale_px
+    mov DWORD PTR [rbp-40], eax
+    mov eax, 26
+    call scale_px
+    mov DWORD PTR [rbp-36], eax
+    call palette_ptr
+    mov r8d, DWORD PTR [rax+8]
+    mov rcx, QWORD PTR [rbp-32]
+    lea rdx, QWORD PTR [rbp-88]
+    call fill_rect_color
+    mov eax, DWORD PTR [rbp-40]
+    mov DWORD PTR [rbp-72], eax
+    mov DWORD PTR [rbp-68], eax
+    mov ecx, DWORD PTR [rbp-80]
+    sub ecx, DWORD PTR [rbp-40]
+    mov DWORD PTR [rbp-64], ecx
+    mov ecx, DWORD PTR [rbp-40]
+    add ecx, DWORD PTR [rbp-36]
+    mov DWORD PTR [rbp-60], ecx
+    call palette_ptr
+    mov r8d, DWORD PTR [rax]
+    mov rcx, QWORD PTR [rbp-32]
+    lea rdx, QWORD PTR [rbp-72]
+    call fill_rect_color
+    call palette_ptr
+    mov edx, DWORD PTR [rax+4]
+    mov rcx, QWORD PTR [rbp-32]
+    call SetTextColor
+    mov rcx, QWORD PTR [rbp-32]
+    mov edx, 1
+    call SetBkMode
+    mov eax, DWORD PTR [rbp-80]
+    sub eax, DWORD PTR [rbp-40]
+    sub eax, DWORD PTR [rbp-36]
+    sub eax, DWORD PTR [rbp-36]
+    mov edx, eax
+    mov eax, DWORD PTR [rbp-40]
+    add eax, 8
+    mov DWORD PTR [rbp-56], eax
+    mov eax, DWORD PTR [rbp-40]
+    mov DWORD PTR [rbp-52], eax
+    mov DWORD PTR [rbp-48], edx
+    mov eax, DWORD PTR [rbp-40]
+    add eax, DWORD PTR [rbp-36]
+    mov DWORD PTR [rbp-44], eax
+    mov rcx, QWORD PTR [rbp-32]
+    lea rdx, QWORD PTR [s_sticky_title]
+    mov r8d, -1
+    lea r9, QWORD PTR [rbp-56]
+    mov DWORD PTR [rsp+32], 8024h
+    call DrawTextW
+    mov eax, DWORD PTR [rbp-80]
+    sub eax, DWORD PTR [rbp-40]
+    sub eax, DWORD PTR [rbp-36]
+    sub eax, DWORD PTR [rbp-36]
+    mov DWORD PTR [rbp-72], eax
+    add eax, DWORD PTR [rbp-36]
+    mov DWORD PTR [rbp-64], eax
+    mov eax, DWORD PTR [rbp-40]
+    mov DWORD PTR [rbp-68], eax
+    mov ecx, DWORD PTR [rbp-40]
+    add ecx, DWORD PTR [rbp-36]
+    mov DWORD PTR [rbp-60], ecx
+    mov rax, QWORD PTR [rbp-16]
+    lea rdx, QWORD PTR [s_pin_txt]
+    cmp DWORD PTR [rax+32], 0
+    je sp_pin_label
+    lea rdx, QWORD PTR [s_unpin_txt]
+sp_pin_label:
+    mov rcx, QWORD PTR [rbp-32]
+    mov r8d, -1
+    lea r9, QWORD PTR [rbp-72]
+    mov DWORD PTR [rsp+32], 25h
+    call DrawTextW
+    mov eax, DWORD PTR [rbp-64]
+    mov DWORD PTR [rbp-72], eax
+    mov eax, DWORD PTR [rbp-80]
+    sub eax, DWORD PTR [rbp-40]
+    mov DWORD PTR [rbp-64], eax
+    mov rcx, QWORD PTR [rbp-32]
+    lea rdx, QWORD PTR [s_close_txt]
+    mov r8d, -1
+    lea r9, QWORD PTR [rbp-72]
+    mov DWORD PTR [rsp+32], 25h
+    call DrawTextW
+    mov rcx, QWORD PTR [rbp-24]
+    lea rdx, QWORD PTR [rbp-160]
+    call EndPaint
+    EPILOG
+sticky_paint ENDP
+
+; rcx = sticky window, rdx = client point: presses the pin or close button
+sticky_click PROC FRAME
+    PROLOG
+    mov QWORD PTR [rbp-8], rcx
+    mov QWORD PTR [rbp-16], rdx
+    lea rdx, QWORD PTR [rbp-88]
+    mov rcx, QWORD PTR [rbp-8]
+    call GetClientRect
+    mov eax, 6
+    call scale_px
+    mov DWORD PTR [rbp-40], eax
+    mov eax, 26
+    call scale_px
+    mov DWORD PTR [rbp-36], eax
+    movzx eax, WORD PTR [rbp-16]
+    mov DWORD PTR [rbp-24], eax
+    movzx eax, WORD PTR [rbp-14]
+    mov DWORD PTR [rbp-28], eax
+    cmp eax, DWORD PTR [rbp-40]
+    jl sc_none
+    mov ecx, DWORD PTR [rbp-40]
+    add ecx, DWORD PTR [rbp-36]
+    cmp eax, ecx
+    jge sc_none
+    mov edx, DWORD PTR [rbp-80]
+    sub edx, DWORD PTR [rbp-40]
+    sub edx, DWORD PTR [rbp-36]
+    cmp DWORD PTR [rbp-24], edx
+    jl sc_pin
+    mov rcx, QWORD PTR [rbp-8]
+    mov edx, WM_CLOSE
+    xor r8d, r8d
+    xor r9d, r9d
+    call SendMessageW
+    jmp sc_none
+sc_pin:
+    sub edx, DWORD PTR [rbp-36]
+    cmp DWORD PTR [rbp-24], edx
+    jl sc_none
+    mov rcx, QWORD PTR [rbp-8]
+    mov edx, GWLP_USERDATA
+    call GetWindowLongPtrW
+    mov QWORD PTR [rbp-48], rax
+    mov rax, QWORD PTR [rbp-48]
+    xor DWORD PTR [rax+32], 1
+    mov rax, QWORD PTR [rbp-48]
+    mov rcx, QWORD PTR [rbp-8]
+    mov edx, DWORD PTR [rax+32]
+    call apply_pin
+    call save_all
+sc_none:
+    xor eax, eax
+    EPILOG
+sticky_click ENDP
+
 ; Sticky window procedure
 sticky_proc PROC FRAME
     PROLOG
@@ -2095,8 +2364,14 @@ sticky_proc PROC FRAME
     je sp_create
     cmp eax, WM_SIZE
     je sp_size
-    cmp eax, WM_SYSCOMMAND
-    je sp_syscmd
+    cmp eax, WM_NCCALCSIZE
+    je sp_nccalc
+    cmp eax, WM_NCHITTEST
+    je sp_hit
+    cmp eax, WM_PAINT
+    je sp_paint
+    cmp eax, WM_LBUTTONUP
+    je sp_click
     cmp eax, WM_EXITSIZEMOVE
     je sp_moved
     cmp eax, WM_CLOSE
@@ -2111,6 +2386,28 @@ sp_default:
 sp_zero:
     xor eax, eax
     EPILOG
+
+sp_nccalc:
+    cmp QWORD PTR [rbp-24], 0
+    je sp_default
+    jmp sp_zero
+
+sp_hit:
+    mov rcx, QWORD PTR [rbp-8]
+    mov rdx, QWORD PTR [rbp-32]
+    call sticky_hit
+    EPILOG
+
+sp_paint:
+    mov rcx, QWORD PTR [rbp-8]
+    call sticky_paint
+    jmp sp_zero
+
+sp_click:
+    mov rcx, QWORD PTR [rbp-8]
+    mov rdx, QWORD PTR [rbp-32]
+    call sticky_click
+    jmp sp_zero
 
 sp_create:
     mov rax, QWORD PTR [rbp-32]
@@ -2147,14 +2444,6 @@ sp_create:
     mov rdx, QWORD PTR [rax]
     mov r8d, DWORD PTR [rax+8]
     call render_into
-    mov rcx, QWORD PTR [rbp-8]
-    xor edx, edx
-    call GetSystemMenu
-    mov rcx, rax
-    mov edx, 0
-    mov r8d, IDM_PIN
-    lea r9, QWORD PTR [s_pin_text]
-    call AppendMenuW
     mov rax, QWORD PTR [rbp-40]
     mov rcx, QWORD PTR [rbp-8]
     mov edx, DWORD PTR [rax+32]
@@ -2167,30 +2456,31 @@ sp_size:
     call GetWindowLongPtrW
     mov QWORD PTR [rbp-40], rax
     mov rcx, QWORD PTR [rax+24]
-    movzx r9d, WORD PTR [rbp-32]
+    mov QWORD PTR [rbp-48], rcx
+    movzx eax, WORD PTR [rbp-32]
+    mov DWORD PTR [rbp-56], eax
     movzx eax, WORD PTR [rbp-30]
+    mov DWORD PTR [rbp-64], eax
+    mov eax, 6
+    call scale_px
+    mov DWORD PTR [rbp-72], eax
+    mov eax, 26
+    call scale_px
+    mov DWORD PTR [rbp-80], eax
+    mov rcx, QWORD PTR [rbp-48]
+    mov edx, DWORD PTR [rbp-72]
+    mov r8d, DWORD PTR [rbp-72]
+    add r8d, DWORD PTR [rbp-80]
+    mov r9d, DWORD PTR [rbp-56]
+    sub r9d, DWORD PTR [rbp-72]
+    sub r9d, DWORD PTR [rbp-72]
+    mov eax, DWORD PTR [rbp-64]
+    sub eax, DWORD PTR [rbp-72]
+    sub eax, DWORD PTR [rbp-72]
+    sub eax, DWORD PTR [rbp-80]
     mov DWORD PTR [rsp+32], eax
     mov DWORD PTR [rsp+40], 1
-    xor edx, edx
-    xor r8d, r8d
     call MoveWindow
-    jmp sp_zero
-
-sp_syscmd:
-    mov eax, DWORD PTR [rbp-24]
-    and eax, 0FFF0h
-    cmp eax, IDM_PIN
-    jne sp_default
-    mov rcx, QWORD PTR [rbp-8]
-    mov edx, GWLP_USERDATA
-    call GetWindowLongPtrW
-    mov QWORD PTR [rbp-40], rax
-    xor DWORD PTR [rax+32], 1
-    mov rax, QWORD PTR [rbp-40]
-    mov rcx, QWORD PTR [rbp-8]
-    mov edx, DWORD PTR [rax+32]
-    call apply_pin
-    call save_all
     jmp sp_zero
 
 sp_moved:
@@ -2723,6 +3013,15 @@ start PROC FRAME
     mov edx, 136
     call GetProcAddress
     mov QWORD PTR [g_pFlushMenu], rax
+    lea rcx, QWORD PTR [k_theme]
+    xor edx, edx
+    call get_int
+    mov ecx, 3
+    test eax, 1
+    jz st_menu_mode
+    mov ecx, 2
+st_menu_mode:
+    call apply_app_mode
     call reg_sticky_class
     mov rcx, QWORD PTR [g_hInst]
     mov edx, IDR_ACCEL

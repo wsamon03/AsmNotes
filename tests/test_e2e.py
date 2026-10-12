@@ -15,6 +15,7 @@ from ctypes import wintypes
 from pathlib import Path
 
 from pywinauto import Application
+from pywinauto import mouse
 from pywinauto.keyboard import send_keys
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
@@ -430,6 +431,23 @@ def stickies_of(pid):
     return found
 
 
+user32.GetDpiForSystem.restype = wintypes.UINT
+
+
+def caption_button(hwnd, which):
+    """Screen coordinates of the pin ('pin') or close ('close') button of a sticky."""
+    left, top, right, bottom = rect_of(hwnd)
+    dpi = user32.GetDpiForSystem()
+    bord = 6 * dpi // 96
+    cap = 26 * dpi // 96
+    w = right - left
+    if which == "close":
+        x = w - bord - cap // 2
+    else:
+        x = w - bord - cap - cap // 2
+    return left + x, top + bord + cap // 2
+
+
 def rect_of(hwnd):
     rc = wintypes.RECT()
     user32.GetWindowRect(hwnd, ctypes.byref(rc))
@@ -463,7 +481,7 @@ def session_stickies(_unused):
         time.sleep(0.3)
         check("sticky is a snapshot of the tab", "XYZ" not in window_text(se), repr(window_text(se)))
 
-        user32.SendMessageW(st, WM_SYSCOMMAND, IDM_PIN, 0)
+        mouse.click(button="left", coords=caption_button(st, "pin"))
         time.sleep(0.4)
         pinned = bool(user32.GetWindowLongW(st, GWL_EXSTYLE) & WS_EX_TOPMOST)
         check("system menu pins the sticky on top", pinned)
@@ -493,9 +511,9 @@ def session_stickies(_unused):
             check("restored sticky keeps its position", rect_of(st) == before, (rect_of(st), before))
             check("restored sticky follows the restored theme", editor_bg_pixel(se) == MIDNIGHT_BG,
                   hex(editor_bg_pixel(se)))
-            user32.SendMessageW(st, WM_CLOSE, 0, 0)
+            mouse.click(button="left", coords=caption_button(st, "close"))
             time.sleep(0.8)
-            check("closing a sticky removes it", len(stickies_of(app.proc.pid)) == 0)
+            check("the caption close button removes the sticky", len(stickies_of(app.proc.pid)) == 0)
         exited, code = app.close()
         check("relaunched app exits cleanly", exited and code == 0, code)
     finally:
