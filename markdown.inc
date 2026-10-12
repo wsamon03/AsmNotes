@@ -600,75 +600,8 @@ mr_end:
 md_build ENDP
 
 ; Applies one paragraph record (rcx = pointer to record)
-apply_par PROC FRAME
-    PROLOG
-    mov QWORD PTR [rbp-8], rcx
-    mov DWORD PTR [g_pf], 188
-    mov DWORD PTR [g_pf+4], 5
-    mov eax, DWORD PTR [rcx+4]
-    mov DWORD PTR [g_pf+12], eax
-    mov eax, DWORD PTR [rcx+8]
-    mov DWORD PTR [g_pf+20], eax
-    mov rdx, QWORD PTR [rbp-8]
-    mov eax, DWORD PTR [rdx]
-    mov QWORD PTR [rbp-16], rax
-    mov rcx, QWORD PTR [g_rhEdit]
-    mov edx, EM_SETSEL
-    mov r8, QWORD PTR [rbp-16]
-    mov r9, QWORD PTR [rbp-16]
-    call SendMessageW
-    mov rcx, QWORD PTR [g_rhEdit]
-    mov edx, EM_SETPARAFORMAT
-    xor r8d, r8d
-    lea r9, QWORD PTR [g_pf]
-    call SendMessageW
-    EPILOG
-apply_par ENDP
 
 ; Applies one span record (rcx = pointer to record)
-apply_span PROC FRAME
-    PROLOG
-    mov QWORD PTR [rbp-8], rcx
-    mov eax, DWORD PTR [rcx]
-    mov QWORD PTR [rbp-16], rax
-    mov eax, DWORD PTR [rcx+4]
-    add rax, QWORD PTR [rbp-16]
-    mov QWORD PTR [rbp-24], rax
-    mov rcx, QWORD PTR [g_rhEdit]
-    mov edx, EM_SETSEL
-    mov r8, QWORD PTR [rbp-16]
-    mov r9, QWORD PTR [rbp-24]
-    call SendMessageW
-    mov rdx, QWORD PTR [rbp-8]
-    mov eax, DWORD PTR [rdx+8]
-    mov DWORD PTR [g_cf2+4], eax
-    mov eax, DWORD PTR [rdx+12]
-    mov DWORD PTR [g_cf2+8], eax
-    mov eax, DWORD PTR [rdx+16]
-    mov DWORD PTR [g_cf2+12], eax
-    mov eax, DWORD PTR [rdx+20]
-    mov DWORD PTR [g_cf2+20], eax
-    mov DWORD PTR [g_cf2], 116
-    test DWORD PTR [rdx+8], 20000000h
-    jz as_send
-    lea rcx, QWORD PTR [g_cf2+26]
-    lea rdx, QWORD PTR [s_consolas]
-    mov r8d, 9
-as_face:
-    mov ax, WORD PTR [rdx]
-    mov WORD PTR [rcx], ax
-    add rdx, 2
-    add rcx, 2
-    dec r8d
-    jnz as_face
-as_send:
-    mov rcx, QWORD PTR [g_rhEdit]
-    mov edx, EM_SETCHARFORMAT
-    mov r8d, 1
-    lea r9, QWORD PTR [g_cf2]
-    call SendMessageW
-    EPILOG
-apply_span ENDP
 
 ; rcx = editor, rdx = source, r8 = length: renders the Markdown into the editor (read-only)
 render_into PROC FRAME
@@ -705,57 +638,73 @@ render_into PROC FRAME
     mov rcx, rax
     call heap_alloc
     mov QWORD PTR [g_plain], rax
-    mov eax, DWORD PTR [g_theme]
-    shl eax, 4
-    lea rdx, QWORD PTR [g_palette]
-    add rdx, rax
-    mov eax, DWORD PTR [rdx+8]
+    call palette_ptr
+    mov eax, DWORD PTR [rax+8]
     mov DWORD PTR [g_accent], eax
-    mov eax, DWORD PTR [rdx+12]
+    call palette_ptr
+    mov eax, DWORD PTR [rax+12]
     mov DWORD PTR [g_muted], eax
     call md_build
+    mov rax, QWORD PTR [g_plen]
+    imul rax, rax, 12
+    mov rcx, QWORD PTR [g_nspans]
+    imul rcx, rcx, 64
+    add rax, rcx
+    mov rcx, QWORD PTR [g_npars]
+    imul rcx, rcx, 48
+    add rax, rcx
+    add rax, 2048
+    shl rax, 1
+    mov rcx, rax
+    call heap_alloc
+    mov QWORD PTR [g_rtfbuf], rax
+    mov QWORD PTR [g_rtfpos], 0
+    call rtf_build
+    mov rax, QWORD PTR [g_rtfpos]
+    mov QWORD PTR [rbp-56], rax
+    add rax, 16
+    mov rcx, rax
+    call heap_alloc
+    mov QWORD PTR [rbp-48], rax
+    mov QWORD PTR [rbp-64], 0
+ri_copy:
+    mov rax, QWORD PTR [rbp-64]
+    cmp rax, QWORD PTR [rbp-56]
+    jae ri_copied
+    mov rdx, QWORD PTR [g_rtfbuf]
+    movzx ecx, WORD PTR [rdx + rax*2]
+    mov rdx, QWORD PTR [rbp-48]
+    mov BYTE PTR [rdx + rax], cl
+    inc QWORD PTR [rbp-64]
+    jmp ri_copy
+ri_copied:
+    mov rax, QWORD PTR [rbp-48]
+    mov QWORD PTR [g_sptr], rax
+    mov rax, QWORD PTR [rbp-56]
+    mov QWORD PTR [g_srem], rax
     mov rcx, QWORD PTR [g_rhEdit]
     mov edx, EM_SETREADONLY
     xor r8d, r8d
     xor r9d, r9d
     call SendMessageW
+    mov QWORD PTR [rbp-112], 0
+    mov DWORD PTR [rbp-104], 0
+    lea rax, QWORD PTR [stream_cb]
+    mov QWORD PTR [rbp-100], rax
     mov rcx, QWORD PTR [g_rhEdit]
-    mov rdx, QWORD PTR [g_plain]
-    call SetWindowTextW
-    mov QWORD PTR [rbp-16], 0
-ri_pars:
-    mov rax, QWORD PTR [rbp-16]
-    cmp rax, QWORD PTR [g_npars]
-    jae ri_pars_done
-    shl rax, 4
-    add rax, QWORD PTR [g_pars]
-    mov rcx, rax
-    call apply_par
-    inc QWORD PTR [rbp-16]
-    jmp ri_pars
-ri_pars_done:
-    mov QWORD PTR [rbp-16], 0
-ri_spans:
-    mov rax, QWORD PTR [rbp-16]
-    cmp rax, QWORD PTR [g_nspans]
-    jae ri_spans_done
-    shl rax, 5
-    add rax, QWORD PTR [g_spans]
-    mov rcx, rax
-    call apply_span
-    inc QWORD PTR [rbp-16]
-    jmp ri_spans
-ri_spans_done:
-    mov rcx, QWORD PTR [g_rhEdit]
-    mov edx, EM_SETSEL
-    xor r8d, r8d
-    xor r9d, r9d
+    mov edx, EM_STREAMIN
+    mov r8d, SF_RTF
+    lea r9, QWORD PTR [rbp-112]
     call SendMessageW
     mov rcx, QWORD PTR [g_rhEdit]
     mov edx, EM_SETREADONLY
     mov r8d, 1
     xor r9d, r9d
     call SendMessageW
+    mov rcx, QWORD PTR [g_rtfbuf]
+    call heap_free
+    mov rcx, QWORD PTR [rbp-48]
+    call heap_free
     mov rcx, QWORD PTR [g_plain]
     call heap_free
     mov rcx, QWORD PTR [g_spans]
@@ -764,6 +713,32 @@ ri_spans_done:
     call heap_free
     EPILOG
 render_into ENDP
+
+; EDITSTREAM callback: copies the next bytes of the RTF document.
+; EDITSTREAM is packed on 4-byte boundaries, so its callback sits at offset 12.
+stream_cb PROC
+    mov r10, QWORD PTR [g_srem]
+    movsxd r11, r8d
+    cmp r10, r11
+    jae scb_have
+    mov r11, r10
+scb_have:
+    xor eax, eax
+    mov rcx, QWORD PTR [g_sptr]
+scb_loop:
+    cmp rax, r11
+    jae scb_done
+    movzx r8d, BYTE PTR [rcx + rax]
+    mov BYTE PTR [rdx + rax], r8b
+    inc rax
+    jmp scb_loop
+scb_done:
+    add QWORD PTR [g_sptr], r11
+    sub QWORD PTR [g_srem], r11
+    mov DWORD PTR [r9], r11d
+    xor eax, eax
+    ret
+stream_cb ENDP
 
 ; Shows the active tab as formatted text in the editor
 render_active PROC FRAME

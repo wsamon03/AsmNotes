@@ -5,7 +5,7 @@ A note-taking app for Windows 11, written in x64 assembly (MASM) against the Win
 ## Features
 
 - Multiple tabs (Ctrl+T new, Ctrl+W close, Ctrl+Tab next), up to 32, drawn in the theme colours
-- Markdown: Ctrl+M switches between raw source and a formatted, read-only view
+- Markdown: Ctrl+M switches between raw source and a formatted, read-only view, rendered as RTF
   (headings, bold, italic, strikethrough, code, lists, quotes, rules, links, escapes)
 - Six themes under View > Theme (Paper, Slate, Sepia, Solarized Dark, Forest, Midnight)
 - Sticky notes: Ctrl+Shift+S opens the active tab as a snapshot window (up to 32).
@@ -60,8 +60,5 @@ This writes the formatted text followed by its formatting runs (see
 
 - The menu bar is the native Windows menu bar, so it keeps the system colours. This was a
   decision: it cannot be recoloured reliably without drawing our own menu bar.
-- The on-screen formatted view is not RTF: streaming RTF into the editor crashed in every
-  configuration tried, so the view applies character and paragraph formats directly. The
-  `/render` seam writes RTF files from the same formatting runs.
 - Markdown is a subset: no tables, images or nested lists.
 - A note is limited to 65,535 characters.
