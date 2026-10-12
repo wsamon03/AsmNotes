@@ -125,7 +125,13 @@ class App:
         return window_text(self.editor)
 
     def focus(self):
-        self.win.set_focus()
+        # Windows may refuse SetForegroundWindow from a background process; a click on
+        # the editor activates the window just the same.
+        try:
+            self.win.set_focus()
+        except Exception:
+            rect = rect_of(self.editor)
+            mouse.click(button="left", coords=((rect[0] + rect[2]) // 2, (rect[1] + rect[3]) // 2))
         time.sleep(0.3)
 
     def close(self):
@@ -169,12 +175,12 @@ def session_one(data):
         check("Ctrl+Tab returns to first tab", app.tab_index() == 0, app.tab_index())
         check("first tab text is restored", app.text() == "alpha", repr(app.text()))
 
-        app.win.menu_select("View->Theme->Sepia")
+        choose_theme(app, "Sepia")
         time.sleep(0.5)
         check("Sepia theme sets editor background", editor_bg_pixel(app.editor) == SEPIA_BG,
               hex(editor_bg_pixel(app.editor)))
 
-        app.win.menu_select("View->Theme->Midnight")
+        choose_theme(app, "Midnight")
         time.sleep(0.5)
         check("Midnight theme sets editor background", editor_bg_pixel(app.editor) == MIDNIGHT_BG,
               hex(editor_bg_pixel(app.editor)))
@@ -509,7 +515,7 @@ def session_stickies(_unused):
         pinned = bool(user32.GetWindowLongW(st, GWL_EXSTYLE) & WS_EX_TOPMOST)
         check("system menu pins the sticky on top", pinned)
 
-        app.win.menu_select("View->Theme->Midnight")
+        choose_theme(app, "Midnight")
         time.sleep(0.6)
         check("sticky follows the theme", editor_bg_pixel(se) == MIDNIGHT_BG, hex(editor_bg_pixel(se)))
 
@@ -591,10 +597,16 @@ def session_themes(_unused):
         send_keys("^t")
         time.sleep(0.4)
         for idx, name in enumerate(THEME_MENU):
-            app.win.menu_select("View->Theme->" + name)
+            choose_theme(app, name)
             time.sleep(0.6)
             bg = editor_bg_pixel(app.editor)
             check("editor follows theme %s" % name, bg == THEME_BG[idx], hex(bg))
+            bar = menu_bar_rect(app.main)
+            bar_mid = (bar.top + bar.bottom) // 2
+            item = gdi_pixel(bar.left + 3, bar.top + 2)
+            gap = gdi_pixel(bar.right - 6, bar_mid)
+            check("menu bar item follows theme %s" % name, item == THEME_BG[idx], hex(item))
+            check("menu bar gap follows theme %s" % name, gap == THEME_BG[idx], hex(gap))
             left, top, right, bottom = rect_of(app.tabs)
             strip = gdi_pixel(right - 20, top + (bottom - top) // 2)
             check("tab strip follows theme %s" % name, strip == THEME_BG[idx], hex(strip))
@@ -604,6 +616,34 @@ def session_themes(_unused):
         check("theme session exits cleanly", exited and code == 0, code)
     finally:
         app.kill()
+
+
+class MENUBARINFO(ctypes.Structure):
+    _fields_ = [("cbSize", wintypes.DWORD), ("rcBar", wintypes.RECT), ("hMenu", wintypes.HANDLE),
+                ("hwndMenu", wintypes.HWND), ("fBarFocused", wintypes.DWORD), ("fFocused", wintypes.DWORD)]
+
+
+user32.GetMenuBarInfo.argtypes = [wintypes.HWND, wintypes.LONG, wintypes.LONG, ctypes.POINTER(MENUBARINFO)]
+OBJID_MENU = -3
+THEME_KEYS = {"Paper": "p", "Slate": "s", "Sepia": "i", "Solarized Dark": "o", "Forest": "f", "Midnight": "m"}
+
+
+def menu_bar_rect(hwnd):
+    """Screen rectangle of the menu bar (owner-drawn items fill it)."""
+    info = MENUBARINFO()
+    info.cbSize = ctypes.sizeof(info)
+    user32.GetMenuBarInfo(hwnd, OBJID_MENU, 0, ctypes.byref(info))
+    return info.rcBar
+
+
+def choose_theme(app, name):
+    """View > Theme > name, driven by mnemonics because the menu is owner-drawn."""
+    app.focus()
+    send_keys("%v")
+    time.sleep(0.3)
+    send_keys("t")
+    time.sleep(0.3)
+    send_keys(THEME_KEYS[name])
 
 
 def gdi_pixel(x, y):

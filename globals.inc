@@ -125,3 +125,7 @@ r_cf3       DB "\cf3", 0
 r_fs        DB "\fs", 0
 g_sptr      QWORD 0
 g_srem      QWORD 0
+g_menufont  QWORD 0
+s_segoe     WORD 'S','e','g','o','e',' ','U','I',0
+s_bullet    WORD 2022h,0
+s_arrow     WORD 203Ah,0

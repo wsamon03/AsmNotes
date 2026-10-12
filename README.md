@@ -8,6 +8,7 @@ A note-taking app for Windows 11, written in x64 assembly (MASM) against the Win
 - Markdown: Ctrl+M switches between raw source and a formatted, read-only view, rendered as RTF
   (headings, bold, italic, strikethrough, code, lists, quotes, rules, links, escapes)
 - Six themes under View > Theme (Paper, Slate, Sepia, Solarized Dark, Forest, Midnight)
+- Owner-drawn menu bar and drop-downs in the theme colours (mnemonics and shortcuts kept)
 - Sticky notes: Ctrl+Shift+S opens the active tab as a snapshot window (up to 32).
   Each sticky has its own caption with a title, a Pin/Unpin button and a close button,
   which show hover and pressed colours.
@@ -52,13 +53,12 @@ This writes the formatted text followed by its formatting runs (see
 - `tabs.inc` - tab strip, tab drawing, switching and closing
 - `sticky.inc` - sticky windows and their custom caption
 - `render.inc` - the `/render` headless renderer
+- `menubar.inc` - owner-drawn menu bar and drop-down items
 - `mainwnd.inc` - themes and the main window procedure
 - `notes.rc`, `winconst.h` - menu, accelerators and resource IDs
 - `notes.manifest` - Common Controls v6 and per-monitor DPI awareness
 
 ## Known limitations
 
-- The menu bar is the native Windows menu bar, so it keeps the system colours. This was a
-  decision: it cannot be recoloured reliably without drawing our own menu bar.
 - Markdown is a subset: no tables, images or nested lists.
 - A note is limited to 65,535 characters.

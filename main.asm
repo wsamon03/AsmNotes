@@ -93,6 +93,17 @@ EXTERN SetWindowLongPtrW:PROC
 EXTERN GetWindowLongPtrW:PROC
 EXTERN GetWindowRect:PROC
 EXTERN SetWindowPos:PROC
+EXTERN GetMenuItemCount:PROC
+EXTERN GetSubMenu:PROC
+EXTERN GetMenuItemID:PROC
+EXTERN ModifyMenuW:PROC
+EXTERN GetMenuStringW:PROC
+EXTERN GetMenuItemInfoW:PROC
+EXTERN GetMenuItemRect:PROC
+EXTERN GetMenuBarInfo:PROC
+EXTERN GetWindowDC:PROC
+EXTERN CreateFontIndirectW:PROC
+EXTERN SelectObject:PROC
 
 
 
@@ -192,6 +203,7 @@ INCLUDE util.inc
 INCLUDE storage.inc
 INCLUDE markdown.inc
 INCLUDE tabs.inc
+INCLUDE menubar.inc
 INCLUDE sticky.inc
 INCLUDE render.inc
 INCLUDE mainwnd.inc

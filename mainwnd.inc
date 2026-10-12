@@ -37,6 +37,8 @@ st_light:
     xor edx, edx
     mov r8d, 1
     call InvalidateRect
+    mov rcx, QWORD PTR [g_hMain]
+    call DrawMenuBar
     call update_stickies
     cmp DWORD PTR [g_view], 0
     je st_done
@@ -80,6 +82,12 @@ main_proc PROC FRAME
     je mp_focus
     cmp eax, WM_DRAWITEM
     je mp_drawitem
+    cmp eax, WM_MEASUREITEM
+    je mp_measure
+    cmp eax, WM_MENUCHAR
+    je mp_menuchar
+    cmp eax, WM_NCPAINT
+    je mp_ncpaint
     cmp eax, WM_CLOSE
     je mp_close
     cmp eax, WM_DESTROY
@@ -168,6 +176,17 @@ mp_create:
     mov r9d, ENM_CHANGE
     call SendMessageW
 
+    call menu_font_init
+    mov rcx, QWORD PTR [g_hMain]
+    call GetMenu
+    test rax, rax
+    jz mp_nomenu
+    mov rcx, rax
+    xor edx, edx
+    call menu_owner_draw
+    mov rcx, QWORD PTR [g_hMain]
+    call DrawMenuBar
+mp_nomenu:
     call load_all
     jmp mp_zero
 
@@ -325,11 +344,42 @@ mp_close:
     jmp mp_zero
 
 mp_drawitem:
+    mov rax, QWORD PTR [rbp-32]
+    cmp DWORD PTR [rax], ODT_MENU
+    jne mp_drawctl
+    mov rcx, QWORD PTR [rbp-32]
+    call menu_draw
+    mov eax, 1
+    EPILOG
+mp_drawctl:
     cmp DWORD PTR [rbp-24], IDC_TABS
     jne mp_zero
     mov rcx, QWORD PTR [rbp-32]
     call draw_tab
     mov eax, 1
+    EPILOG
+mp_measure:
+    mov rax, QWORD PTR [rbp-32]
+    cmp DWORD PTR [rax], ODT_MENU
+    jne mp_zero
+    mov rcx, QWORD PTR [rbp-32]
+    call menu_measure
+    mov eax, 1
+    EPILOG
+mp_menuchar:
+    movzx ecx, WORD PTR [rbp-24]
+    mov rdx, QWORD PTR [rbp-32]
+    call menu_mnemonic
+    EPILOG
+mp_ncpaint:
+    mov rcx, QWORD PTR [rbp-8]
+    mov edx, DWORD PTR [rbp-16]
+    mov r8, QWORD PTR [rbp-24]
+    mov r9, QWORD PTR [rbp-32]
+    call DefWindowProcW
+    mov QWORD PTR [rbp-40], rax
+    call menu_gap_paint
+    mov rax, QWORD PTR [rbp-40]
     EPILOG
 mp_destroy:
     xor ecx, ecx

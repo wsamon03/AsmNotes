@@ -24,7 +24,7 @@ BEGIN
         BEGIN
             MENUITEM "&Paper", IDM_THEME_0
             MENUITEM "&Slate", IDM_THEME_0 + 1
-            MENUITEM "&Sepia", IDM_THEME_0 + 2
+            MENUITEM "Sep&ia", IDM_THEME_0 + 2
             MENUITEM "S&olarized Dark", IDM_THEME_0 + 3
             MENUITEM "&Forest", IDM_THEME_0 + 4
             MENUITEM "&Midnight", IDM_THEME_0 + 5
