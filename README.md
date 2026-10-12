@@ -1,126 +1,46 @@
-# AsmNotes: x64 MASM Note-Taking App
+# AsmNotes
 
-A minimal but feature-rich note-taking application written in pure x64 assembly (MASM) for Windows 11.
+A note-taking app for Windows 11, written in x64 assembly (MASM) against the Win32 API.
 
 ## Features
 
-- **Multi-tab interface**: Organize notes across unlimited tabs
-- **Markdown support**: Write in Markdown, toggle between raw and formatted view
-- **6 Visual themes**: Paper, Slate, Sepia, Solarized, Forest, Midnight
-- **Sticky notes**: Send any tab to desktop as a snapshot sticky note
-- **Persistent storage**: Autosave to `%APPDATA%\AsmNotes` (UTF-8)
-- **DPI-aware**: Per-monitor DPI scaling on Windows 11
+- Multiple tabs (Ctrl+T new, Ctrl+W close, Ctrl+Tab next), up to 32
+- Markdown: Ctrl+M switches between raw source and a formatted, read-only view
+  (headings, bold, italic, strikethrough, code, lists, quotes, rules, links, escapes)
+- Six themes under View > Theme (Paper, Slate, Sepia, Solarized Dark, Forest, Midnight)
+- Sticky notes: Ctrl+Shift+S opens the active tab as a snapshot window (up to 32).
+  Stickies can be pinned on top from their system menu.
+- Autosave to `%APPDATA%\AsmNotes` (UTF-8 files and `settings.ini`), restored on launch
 
 ## Build
 
-### Requirements
-- Windows 10/11 (x64)
-- Visual Studio 2022 Build Tools
-- Windows SDK 10.0.26100 or later
+Requires the Visual Studio 2022 Build Tools (MSVC x64 and Windows SDK).
 
-### Compile & Link
+    build.bat
 
-```bash
-build.bat
-```
+This produces `AsmNotes.exe`.
 
-Produces: `AsmNotes.exe` (7KB x64 PE executable)
+## Test
 
-## Project Structure
+With the exe built, run:
 
-### Core Modules
-- **main.asm** - Entry point, message loop, global state
-- **consts.inc** - Win32 constants and control IDs
-- **util.inc** - Heap allocation, string utilities, UTF-8/UTF-16 conversion
-- **mainwnd.inc** - Main window class, tab management
-- **themes.inc** - 6 color themes (RGB palettes)
-- **markdown.inc** - Markdown to RTF converter
-- **storage.inc** - AppData persistence (settings.ini + tab*.md)
-- **sticky.inc** - Desktop sticky note window class
-- **notes.rc/manifest** - Resources (menu, accelerators, DPI awareness)
+    python tests\test_e2e.py
 
-### Build System
-- **build.bat** - MASM (ml64) → RC (rc.exe) → LINK pipeline
-- Uses VS 2022 Build Tools' native x64 toolchain
-- No external dependencies or CRT required
-- `/ENTRY:start /NODEFAULTLIB` - standalone executable
+The tests start the real exe, drive it with keyboard and menu input (pywinauto),
+read state back through Win32 messages, and check the files written to a
+temporary `%APPDATA%`. They need Python 3 with `pywinauto` installed.
 
-## Architecture
+## Layout
 
-### Calling Convention
-x64 System V (Windows/AMD64):
-- RCX, RDX, R8, R9 = first 4 integer/pointer args
-- 32-byte shadow space (caller-allocated stack frame)
-- 16-byte stack alignment at function entry
-- Preserved: RBX, R12-R15, RSP, RBP
+- `main.asm` - all code: window procedures, tabs, persistence, Markdown renderer, stickies
+- `consts.inc` - Win32 equates checked against the SDK headers
+- `notes.rc`, `winconst.h` - menu, accelerators and the application manifest reference
+- `notes.manifest` - Common Controls v6 and per-monitor DPI awareness
 
-### Memory Model
-- **Heap**: `GetProcessHeap()` + `HeapAlloc`/`HeapFree`
-- **Strings**: UTF-16 wide chars (3 bytes per character with null terminator in many cases)
-- **Text buffers**: Growable heap-allocated buffers (GrowBuffer utility)
-- **Global state**: Module-level QWORD/DWORD variables
+## Known limitations
 
-### Persistence
-- Settings: `%APPDATA%\AsmNotes\settings.ini` (WritePrivateProfileString)
-- Tabs: `tab0.md`, `tab1.md`, ... (UTF-8, atomic writes via .tmp files)
-- Autosave: Debounced 1.5s after last edit, on tab switch, on close
-- Stickies: `sticky0.md`, ... (persistent layout, pin state)
-
-## Testing
-
-### Build Verification
-```bash
-bash verify-build.sh
-```
-
-Checks:
-- All source files present
-- Executable created and valid
-- Git repository and commits
-- PE format validation
-
-### Test Fixtures
-- `tests/test_simple.md` - Basic markdown with headings, bold, italic, lists
-
-### Known Limitations
-
-**Current (Skeleton Implementation):**
-- GUI components (window creation, RichEdit) are implemented but require Windows environment to test
-- Tested on: MASM v14.44.35226.0 with VS Build Tools 2022
-- Does NOT run in WSL/bash (no Windows message pump in non-native environment)
-- Requires actual Windows 11 for full GUI testing
-
-**Not Yet Implemented (Stubs):**
-- Tab control rendering (TCS_OWNERDRAWFIXED color support)
-- RichEdit creation and text management
-- Full Markdown parsing (bold, italic, lists, code, quotes)
-- Sticky note drag/resize/pin UI
-- DPI scaling for child controls
-- Middle-click tab close, accelerator handling
-- 32-tab limit enforcement, empty-state handling
-
-## Next Steps (Windows Environment Required)
-
-1. **Complete window initialization** - Fix RichEdit and tab control creation
-2. **Tab management** - Implement owner-draw tab styling, new/close/switch logic
-3. **Text buffer sync** - Load/save tab text on switch
-4. **Persistence I/O** - Write/read ini and markdown files
-5. **Sticky notes** - Window class and lifecycle for desktop notes
-6. **Polish** - Keyboard shortcuts, theme switching, DPI scaling
-7. **Test suite** - Automated GUI testing via COM/accessibility APIs
-
-## Development Notes
-
-- Commit message style: explain the *why*, list what changed
-- One logical feature per commit
-- Build must succeed with no errors/warnings after each commit
-- Push to remote after each commit (no batching)
-
-## Performance
-- Executable size: 7.0 KB (x64 PE)
-- Startup: Single-threaded, message pump-based
-- Memory: Minimal (heap allocated only for text buffers)
-- Text limit: Up to 128 KB per tab (configurable via buffer growth)
-
-## License
-Educational/demonstration code. Public domain.
+- Tab strip and menu bar use the system colours; only the editor area follows the theme.
+- The tab strip height is fixed in pixels and does not scale with DPI.
+- Sticky windows use the standard Windows caption rather than a custom one.
+- Markdown is a subset: no tables, images or nested lists.
+- A note is limited to 65,535 characters.
