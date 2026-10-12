@@ -1,12 +1,15 @@
 """End-to-end UI tests for AsmNotes.
 
-Drives the real exe with keyboard and menu input (pywinauto), and reads state back
-through Win32 messages. Run after build.bat:  python tests\\test_e2e.py
+Drives the real exe with keyboard and menu input (pywinauto) and reads state back
+through Win32 messages. Each run uses a throwaway %APPDATA% so the user's notes are
+never touched. Run after build.bat:  python tests\\test_e2e.py
 """
 
 import ctypes
+import os
 import subprocess
 import sys
+import tempfile
 import time
 from ctypes import wintypes
 from pathlib import Path
@@ -15,25 +18,31 @@ from pywinauto import Application
 from pywinauto.keyboard import send_keys
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
+gdi32 = ctypes.WinDLL("gdi32")
+
 user32.FindWindowW.restype = wintypes.HWND
 user32.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
 user32.SendMessageW.restype = ctypes.c_ssize_t
 user32.SendMessageW.argtypes = [wintypes.HWND, ctypes.c_uint, ctypes.c_size_t, ctypes.c_void_p]
+user32.PostMessageW.argtypes = [wintypes.HWND, ctypes.c_uint, ctypes.c_size_t, ctypes.c_ssize_t]
 user32.GetDC.restype = wintypes.HDC
 user32.GetDC.argtypes = [wintypes.HWND]
-gdi32 = ctypes.WinDLL("gdi32")
+user32.ReleaseDC.argtypes = [wintypes.HWND, wintypes.HDC]
+user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
 gdi32.GetPixel.argtypes = [wintypes.HDC, ctypes.c_int, ctypes.c_int]
 gdi32.GetPixel.restype = wintypes.DWORD
-user32.ReleaseDC.argtypes = [wintypes.HWND, wintypes.HDC]
-user32.GetClientRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
 
 WM_GETTEXT = 0x000D
 WM_GETTEXTLENGTH = 0x000E
+WM_CHAR = 0x0102
+WM_CLOSE = 0x0010
 TCM_GETITEMCOUNT = 0x1304
 TCM_GETCURSEL = 0x130B
-WM_CLOSE = 0x0010
+MIDNIGHT_BG = 0x20100B
+SEPIA_BG = 0xD8ECF4
 
 EXE = Path(__file__).resolve().parent.parent / "AsmNotes.exe"
+WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
 
 failures = []
 
@@ -44,18 +53,17 @@ def check(name, cond, detail=""):
         failures.append(name)
 
 
-def window_text(hwnd):
-    n = user32.SendMessageW(hwnd, WM_GETTEXTLENGTH, 0, 0)
-    buf = ctypes.create_unicode_buffer(n + 1)
-    user32.SendMessageW(hwnd, WM_GETTEXT, n + 1, ctypes.addressof(buf))
-    return buf.value
+def wait_for(pred, timeout=5.0):
+    end = time.time() + timeout
+    while time.time() < end:
+        if pred():
+            return True
+        time.sleep(0.1)
+    return False
 
 
 def find_main():
     return user32.FindWindowW("AsmNotes", None) or 0
-
-
-WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
 
 
 def child(parent, cls):
@@ -72,96 +80,174 @@ def child(parent, cls):
     return found[0] if found else 0
 
 
+def window_text(hwnd):
+    n = user32.SendMessageW(hwnd, WM_GETTEXTLENGTH, 0, 0)
+    buf = ctypes.create_unicode_buffer(n + 1)
+    user32.SendMessageW(hwnd, WM_GETTEXT, n + 1, ctypes.addressof(buf))
+    return buf.value
+
+
 def editor_bg_pixel(editor):
     rc = wintypes.RECT()
     user32.GetWindowRect(editor, ctypes.byref(rc))
     hdc = user32.GetDC(None)
     color = gdi32.GetPixel(hdc, rc.right - 12, rc.bottom - 12)
     user32.ReleaseDC(None, hdc)
-    return color
+    return color & 0xFFFFFF
 
 
-def wait_for(pred, timeout=5.0):
-    end = time.time() + timeout
-    while time.time() < end:
-        if pred():
-            return True
-        time.sleep(0.1)
-    return False
+class App:
+    """A running AsmNotes process with its window and child controls."""
+
+    def __init__(self, appdata):
+        env = dict(os.environ)
+        env["APPDATA"] = str(appdata)
+        self.proc = subprocess.Popen([str(EXE)], env=env)
+        if not wait_for(lambda: find_main() != 0):
+            raise RuntimeError("main window did not appear")
+        time.sleep(0.6)
+        self.main = find_main()
+        self.editor = child(self.main, "RICHEDIT50W")
+        self.tabs = child(self.main, "SysTabControl32")
+        self.win = Application(backend="win32").connect(process=self.proc.pid).window(handle=self.main)
+
+    def alive(self):
+        return self.proc.poll() is None
+
+    def tab_count(self):
+        return user32.SendMessageW(self.tabs, TCM_GETITEMCOUNT, 0, 0)
+
+    def tab_index(self):
+        return user32.SendMessageW(self.tabs, TCM_GETCURSEL, 0, 0)
+
+    def text(self):
+        return window_text(self.editor)
+
+    def focus(self):
+        self.win.set_focus()
+        time.sleep(0.3)
+
+    def close(self):
+        user32.SendMessageW(self.main, WM_CLOSE, 0, 0)
+        exited = wait_for(lambda: self.proc.poll() is not None, timeout=5)
+        return exited, self.proc.returncode
+
+    def kill(self):
+        if self.proc.poll() is None:
+            self.proc.kill()
+
+
+def session_one(data):
+    print("\n== Session 1: fresh profile ==")
+    app = App(data)
+    try:
+        check("process starts and stays alive", app.alive())
+        check("editor control exists", bool(app.editor))
+        check("tab control exists", bool(app.tabs))
+        check("starts with one tab", app.tab_count() == 1, app.tab_count())
+        check("first tab starts empty", app.text() == "", repr(app.text()))
+
+        app.focus()
+        send_keys("alpha", pause=0.05)
+        time.sleep(0.3)
+        check("typed text lands in editor", app.text() == "alpha", repr(app.text()))
+
+        send_keys("^t")
+        time.sleep(0.5)
+        check("Ctrl+T adds a tab", app.tab_count() == 2, app.tab_count())
+        check("new tab becomes active", app.tab_index() == 1, app.tab_index())
+        check("new tab editor is empty", app.text() == "", repr(app.text()))
+
+        send_keys("beta", pause=0.05)
+        user32.PostMessageW(app.editor, WM_CHAR, 0xE9, 0)
+        time.sleep(0.3)
+        check("non-ASCII input lands in editor", app.text() == "betaé", repr(app.text()))
+
+        send_keys("^{TAB}")
+        time.sleep(0.5)
+        check("Ctrl+Tab returns to first tab", app.tab_index() == 0, app.tab_index())
+        check("first tab text is restored", app.text() == "alpha", repr(app.text()))
+
+        app.win.menu_select("View->Theme->Sepia")
+        time.sleep(0.5)
+        check("Sepia theme sets editor background", editor_bg_pixel(app.editor) == SEPIA_BG,
+              hex(editor_bg_pixel(app.editor)))
+
+        app.win.menu_select("View->Theme->Midnight")
+        time.sleep(0.5)
+        check("Midnight theme sets editor background", editor_bg_pixel(app.editor) == MIDNIGHT_BG,
+              hex(editor_bg_pixel(app.editor)))
+
+        time.sleep(2.5)
+        exited, code = app.close()
+        check("WM_CLOSE exits the process cleanly", exited and code == 0, code)
+    finally:
+        app.kill()
+
+    notes = data / "AsmNotes"
+    tab0 = (notes / "tab0.md").read_bytes()
+    tab1 = (notes / "tab1.md").read_bytes()
+    check("tab0.md holds the first tab as UTF-8", tab0 == b"alpha", tab0)
+    check("tab1.md holds non-ASCII as UTF-8", tab1 == "betaé".encode("utf-8"), tab1)
+    ini = (notes / "settings.ini").read_bytes().decode("latin-1")
+    check("settings.ini records 2 tabs", "Tabs=2" in ini, ini.strip())
+    check("settings.ini records the Midnight theme", "Theme=5" in ini, ini.strip())
+
+
+def session_two(data):
+    print("\n== Session 2: relaunch restores the previous session ==")
+    app = App(data)
+    try:
+        check("restored tab count is 2", app.tab_count() == 2, app.tab_count())
+        check("restored active tab is the first", app.tab_index() == 0, app.tab_index())
+        check("restored first tab text", app.text() == "alpha", repr(app.text()))
+        check("restored theme is Midnight", editor_bg_pixel(app.editor) == MIDNIGHT_BG,
+              hex(editor_bg_pixel(app.editor)))
+
+        app.focus()
+        send_keys("^{TAB}")
+        time.sleep(0.5)
+        check("restored second tab text", app.text() == "betaé", repr(app.text()))
+
+        send_keys("^w")
+        time.sleep(0.5)
+        check("Ctrl+W closes the active tab", app.tab_count() == 1, app.tab_count())
+        time.sleep(1.5)
+        exited, code = app.close()
+        check("second session exits cleanly", exited and code == 0, code)
+    finally:
+        app.kill()
+
+    check("closed tab's file is removed", not (data / "AsmNotes" / "tab1.md").exists())
+
+
+def session_three(data):
+    print("\n== Session 3: the closed tab stays closed ==")
+    app = App(data)
+    try:
+        check("tab count is 1 after relaunch", app.tab_count() == 1, app.tab_count())
+        check("remaining tab text kept", app.text() == "alpha", repr(app.text()))
+
+        app.focus()
+        send_keys("^w")
+        time.sleep(0.5)
+        check("closing the last tab leaves one blank tab", app.tab_count() == 1 and app.text() == "",
+              (app.tab_count(), repr(app.text())))
+        time.sleep(1.5)
+        app.close()
+    finally:
+        app.kill()
 
 
 def main():
     if not EXE.exists():
         print("FAIL exe not built: " + str(EXE))
         return 1
-
-    proc = subprocess.Popen([str(EXE)])
-    try:
-        check("process starts and stays alive", True)
-        ok = wait_for(lambda: find_main() != 0)
-        check("main window (class AsmNotes) appears", ok)
-        if not ok:
-            return 1
-        main = find_main()
-        time.sleep(0.5)
-        check("process still alive after startup", proc.poll() is None, proc.poll())
-
-        app = Application(backend="win32").connect(process=proc.pid)
-        win = app.window(handle=main)
-        editor = child(main, "RICHEDIT50W")
-        tabs = child(main, "SysTabControl32")
-        check("editor control exists", bool(editor))
-        check("tab control exists", bool(tabs))
-
-        def tab_count():
-            return user32.SendMessageW(tabs, TCM_GETITEMCOUNT, 0, 0)
-
-        def tab_index():
-            return user32.SendMessageW(tabs, TCM_GETCURSEL, 0, 0)
-
-        check("starts with one tab", tab_count() == 1, tab_count())
-
-        win.set_focus()
-        time.sleep(0.3)
-        send_keys("alpha", with_spaces=True, pause=0.05)
-        time.sleep(0.3)
-        check("typed text lands in editor", window_text(editor) == "alpha", repr(window_text(editor)))
-
-        send_keys("^t")
-        time.sleep(0.5)
-        check("Ctrl+T adds a tab", tab_count() == 2, tab_count())
-        check("new tab becomes active", tab_index() == 1, tab_index())
-        check("new tab editor is empty", window_text(editor) == "", repr(window_text(editor)))
-
-        send_keys("beta", pause=0.05)
-        time.sleep(0.3)
-        check("second tab holds its own text", window_text(editor) == "beta", repr(window_text(editor)))
-
-        send_keys("^{TAB}")
-        time.sleep(0.5)
-        check("Ctrl+Tab returns to first tab", tab_index() == 0, tab_index())
-        check("first tab text is restored", window_text(editor) == "alpha", repr(window_text(editor)))
-
-        win.menu_select("View->Theme->Sepia")
-        time.sleep(0.5)
-        bg = editor_bg_pixel(editor)
-        check("Sepia theme sets editor background (BGR 0x00D8ECF4)", (bg & 0xFFFFFF) == 0xD8ECF4, hex(bg))
-
-        win.menu_select("View->Theme->Midnight")
-        time.sleep(0.5)
-        bg = editor_bg_pixel(editor)
-        check("Midnight theme sets editor background (BGR 0x0020100B)", (bg & 0xFFFFFF) == 0x20100B, hex(bg))
-
-        send_keys("^w")
-        time.sleep(0.5)
-        check("Ctrl+W closes the active tab", tab_count() == 1, tab_count())
-
-        user32.SendMessageW(main, WM_CLOSE, 0, 0)
-        exited = wait_for(lambda: proc.poll() is not None, timeout=5)
-        check("WM_CLOSE exits the process cleanly", exited and proc.returncode == 0, proc.returncode)
-    finally:
-        if proc.poll() is None:
-            proc.kill()
+    with tempfile.TemporaryDirectory() as tmp:
+        data = Path(tmp)
+        session_one(data)
+        session_two(data)
+        session_three(data)
 
     print()
     if failures:

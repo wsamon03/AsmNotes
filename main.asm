@@ -53,6 +53,19 @@ EXTERN DwmSetWindowAttribute:PROC
 EXTERN InvalidateRect:PROC
 EXTERN wsprintfW:PROC
 EXTERN ExitProcess:PROC
+EXTERN GetEnvironmentVariableW:PROC
+EXTERN CreateDirectoryW:PROC
+EXTERN GetPrivateProfileIntW:PROC
+EXTERN WritePrivateProfileStringW:PROC
+EXTERN CreateFileW:PROC
+EXTERN ReadFile:PROC
+EXTERN WriteFile:PROC
+EXTERN GetFileSize:PROC
+EXTERN CloseHandle:PROC
+EXTERN MoveFileExW:PROC
+EXTERN DeleteFileW:PROC
+EXTERN WideCharToMultiByte:PROC
+EXTERN MultiByteToWideChar:PROC
 
 .DATA
 ALIGN 8
@@ -85,6 +98,23 @@ s_tabclass  WORD 'S','y','s','T','a','b','C','o','n','t','r','o','l','3','2',0
 s_richedit  WORD 'R','I','C','H','E','D','I','T','5','0','W',0
 s_msftedit  WORD 'M','s','f','t','e','d','i','t','.','d','l','l',0
 fmt_note    WORD 'N','o','t','e',' ','%','d',0
+s_appdata   WORD 'A','P','P','D','A','T','A',0
+fmt_dir     WORD '%','s',5Ch,'A','s','m','N','o','t','e','s',0
+fmt_ini     WORD '%','s',5Ch,'s','e','t','t','i','n','g','s','.','i','n','i',0
+fmt_tabpath WORD '%','s',5Ch,'t','a','b','%','d','.','m','d',0
+fmt_tmp     WORD '%','s','.','t','m','p',0
+fmt_int     WORD '%','d',0
+s_sec_notes WORD 'N','o','t','e','s',0
+k_tabs      WORD 'T','a','b','s',0
+k_active    WORD 'A','c','t','i','v','e',0
+k_theme     WORD 'T','h','e','m','e',0
+k_view      WORD 'V','i','e','w',0
+g_appdata   WORD 300 DUP(0)
+g_dir       WORD 300 DUP(0)
+g_path      WORD 320 DUP(0)
+g_tmp       WORD 330 DUP(0)
+g_ini       WORD 320 DUP(0)
+g_num       WORD 32 DUP(0)
 
 .CODE
 
@@ -261,12 +291,9 @@ activate PROC FRAME
     EPILOG
 activate ENDP
 
-new_tab PROC FRAME
+; Appends an empty tab and returns its index in eax
+append_tab PROC FRAME
     PROLOG
-    mov eax, DWORD PTR [g_nTabs]
-    cmp eax, MAX_TABS
-    jae nt_done
-    call sync_active
     call tab_create
     mov ecx, DWORD PTR [g_nTabs]
     mov QWORD PTR [rbp-8], rcx
@@ -286,11 +313,313 @@ new_tab PROC FRAME
     lea r9, QWORD PTR [rbp-80]
     call SendMessageW
     inc DWORD PTR [g_nTabs]
-    mov ecx, DWORD PTR [rbp-8]
+    mov eax, DWORD PTR [rbp-8]
+    EPILOG
+append_tab ENDP
+
+new_tab PROC FRAME
+    PROLOG
+    mov eax, DWORD PTR [g_nTabs]
+    cmp eax, MAX_TABS
+    jae nt_done
+    call sync_active
+    call append_tab
+    mov ecx, eax
     call activate
+    call save_all
 nt_done:
     EPILOG
 new_tab ENDP
+
+; rcx = key name, edx = default -> eax = value from settings.ini
+get_int PROC FRAME
+    PROLOG
+    mov r8d, edx
+    mov rdx, rcx
+    lea rcx, QWORD PTR [s_sec_notes]
+    lea r9, QWORD PTR [g_ini]
+    call GetPrivateProfileIntW
+    EPILOG
+get_int ENDP
+
+; rcx = key name, edx = value
+set_int PROC FRAME
+    PROLOG
+    mov QWORD PTR [rbp-8], rcx
+    mov r8d, edx
+    lea rdx, QWORD PTR [fmt_int]
+    lea rcx, QWORD PTR [g_num]
+    call wsprintfW
+    mov rdx, QWORD PTR [rbp-8]
+    lea r8, QWORD PTR [g_num]
+    lea rcx, QWORD PTR [s_sec_notes]
+    lea r9, QWORD PTR [g_ini]
+    call WritePrivateProfileStringW
+    EPILOG
+set_int ENDP
+
+storage_init PROC FRAME
+    PROLOG
+    lea rcx, QWORD PTR [s_appdata]
+    lea rdx, QWORD PTR [g_appdata]
+    mov r8d, 260
+    call GetEnvironmentVariableW
+    lea rcx, QWORD PTR [g_dir]
+    lea rdx, QWORD PTR [fmt_dir]
+    lea r8, QWORD PTR [g_appdata]
+    call wsprintfW
+    lea rcx, QWORD PTR [g_dir]
+    xor edx, edx
+    call CreateDirectoryW
+    lea rcx, QWORD PTR [g_ini]
+    lea rdx, QWORD PTR [fmt_ini]
+    lea r8, QWORD PTR [g_dir]
+    call wsprintfW
+    EPILOG
+storage_init ENDP
+
+; ecx = tab index -> g_path = that tab's file
+path_for_tab PROC FRAME
+    PROLOG
+    mov eax, ecx
+    mov QWORD PTR [rbp-8], rax
+    lea rcx, QWORD PTR [g_path]
+    lea rdx, QWORD PTR [fmt_tabpath]
+    lea r8, QWORD PTR [g_dir]
+    mov r9, QWORD PTR [rbp-8]
+    call wsprintfW
+    EPILOG
+path_for_tab ENDP
+
+; ecx = tab index: writes it as UTF-8 to a temp file, then renames over the real file
+save_tab_file PROC FRAME
+    PROLOG
+    mov eax, ecx
+    mov QWORD PTR [rbp-8], rax
+    lea r11, QWORD PTR [g_tabs]
+    mov rcx, QWORD PTR [r11 + rax*8]
+    mov QWORD PTR [rbp-16], rcx
+    mov rdx, QWORD PTR [rcx]
+    mov QWORD PTR [rbp-24], rdx
+    mov eax, DWORD PTR [rcx+8]
+    mov QWORD PTR [rbp-32], rax
+    mov ecx, 65001
+    xor edx, edx
+    mov r8, QWORD PTR [rbp-24]
+    mov r9, QWORD PTR [rbp-32]
+    mov QWORD PTR [rsp+32], 0
+    mov QWORD PTR [rsp+40], 0
+    mov QWORD PTR [rsp+48], 0
+    mov QWORD PTR [rsp+56], 0
+    call WideCharToMultiByte
+    mov QWORD PTR [rbp-40], rax
+    mov ecx, eax
+    add ecx, 8
+    call heap_alloc
+    mov QWORD PTR [rbp-48], rax
+    mov ecx, 65001
+    xor edx, edx
+    mov r8, QWORD PTR [rbp-24]
+    mov r9, QWORD PTR [rbp-32]
+    mov QWORD PTR [rsp+32], rax
+    mov rax, QWORD PTR [rbp-40]
+    mov QWORD PTR [rsp+40], rax
+    mov QWORD PTR [rsp+48], 0
+    mov QWORD PTR [rsp+56], 0
+    call WideCharToMultiByte
+    mov rcx, QWORD PTR [rbp-8]
+    call path_for_tab
+    lea rcx, QWORD PTR [g_tmp]
+    lea rdx, QWORD PTR [fmt_tmp]
+    lea r8, QWORD PTR [g_path]
+    call wsprintfW
+    lea rcx, QWORD PTR [g_tmp]
+    mov edx, 40000000h
+    xor r8d, r8d
+    xor r9d, r9d
+    mov DWORD PTR [rsp+32], 2
+    mov DWORD PTR [rsp+40], 80h
+    mov QWORD PTR [rsp+48], 0
+    call CreateFileW
+    cmp rax, -1
+    je stf_free
+    mov QWORD PTR [rbp-56], rax
+    mov rcx, rax
+    mov rdx, QWORD PTR [rbp-48]
+    mov r8, QWORD PTR [rbp-40]
+    lea r9, QWORD PTR [rbp-64]
+    mov QWORD PTR [rsp+32], 0
+    call WriteFile
+    mov rcx, QWORD PTR [rbp-56]
+    call CloseHandle
+    lea rcx, QWORD PTR [g_tmp]
+    lea rdx, QWORD PTR [g_path]
+    mov r8d, 1
+    call MoveFileExW
+stf_free:
+    mov rcx, QWORD PTR [rbp-48]
+    call heap_free
+    EPILOG
+save_tab_file ENDP
+
+; ecx = tab index: reads its file (if any) into the tab
+load_tab_file PROC FRAME
+    PROLOG
+    mov eax, ecx
+    mov QWORD PTR [rbp-8], rax
+    call path_for_tab
+    lea rcx, QWORD PTR [g_path]
+    mov edx, 80000000h
+    mov r8d, 1
+    xor r9d, r9d
+    mov DWORD PTR [rsp+32], 3
+    mov DWORD PTR [rsp+40], 80h
+    mov QWORD PTR [rsp+48], 0
+    call CreateFileW
+    cmp rax, -1
+    je ltf_done
+    mov QWORD PTR [rbp-16], rax
+    mov rcx, rax
+    xor edx, edx
+    call GetFileSize
+    cmp eax, -1
+    je ltf_close_only
+    cmp eax, 262144
+    ja ltf_close_only
+    mov DWORD PTR [rbp-24], eax
+    mov ecx, eax
+    add ecx, 4
+    call heap_alloc
+    mov QWORD PTR [rbp-32], rax
+    mov rcx, QWORD PTR [rbp-16]
+    mov rdx, QWORD PTR [rbp-32]
+    mov r8d, DWORD PTR [rbp-24]
+    lea r9, QWORD PTR [rbp-40]
+    mov QWORD PTR [rsp+32], 0
+    call ReadFile
+    mov rcx, QWORD PTR [rbp-16]
+    call CloseHandle
+    mov rax, QWORD PTR [rbp-8]
+    lea r11, QWORD PTR [g_tabs]
+    mov rcx, QWORD PTR [r11 + rax*8]
+    mov QWORD PTR [rbp-48], rcx
+    mov rax, QWORD PTR [rcx]
+    mov QWORD PTR [rsp+32], rax
+    mov DWORD PTR [rsp+40], MAX_CCH - 1
+    mov ecx, 65001
+    xor edx, edx
+    mov r8, QWORD PTR [rbp-32]
+    mov r9d, DWORD PTR [rbp-24]
+    call MultiByteToWideChar
+    mov rcx, QWORD PTR [rbp-48]
+    mov DWORD PTR [rcx+8], eax
+    mov rdx, QWORD PTR [rcx]
+    mov eax, DWORD PTR [rcx+8]
+    mov WORD PTR [rdx + rax*2], 0
+    mov rcx, QWORD PTR [rbp-32]
+    call heap_free
+    jmp ltf_title
+ltf_close_only:
+    mov rcx, QWORD PTR [rbp-16]
+    call CloseHandle
+ltf_title:
+    mov ecx, DWORD PTR [rbp-8]
+    call update_title
+ltf_done:
+    EPILOG
+load_tab_file ENDP
+
+; Writes every open tab, removes files of closed tabs, and saves the settings
+save_all PROC FRAME
+    PROLOG
+    call sync_active
+    mov DWORD PTR [rbp-8], 0
+sa_save:
+    mov eax, DWORD PTR [rbp-8]
+    cmp eax, DWORD PTR [g_nTabs]
+    jae sa_delete
+    mov ecx, eax
+    call save_tab_file
+    inc DWORD PTR [rbp-8]
+    jmp sa_save
+sa_delete:
+    mov eax, DWORD PTR [rbp-8]
+    cmp eax, MAX_TABS
+    jae sa_settings
+    mov ecx, eax
+    call path_for_tab
+    lea rcx, QWORD PTR [g_path]
+    call DeleteFileW
+    inc DWORD PTR [rbp-8]
+    jmp sa_delete
+sa_settings:
+    lea rcx, QWORD PTR [k_tabs]
+    mov edx, DWORD PTR [g_nTabs]
+    call set_int
+    lea rcx, QWORD PTR [k_active]
+    mov edx, DWORD PTR [g_active]
+    call set_int
+    lea rcx, QWORD PTR [k_theme]
+    mov edx, DWORD PTR [g_theme]
+    call set_int
+    lea rcx, QWORD PTR [k_view]
+    mov edx, DWORD PTR [g_view]
+    call set_int
+    EPILOG
+save_all ENDP
+
+; Restores settings and tabs from the previous session, or starts with one blank tab
+load_all PROC FRAME
+    PROLOG
+    lea rcx, QWORD PTR [k_theme]
+    xor edx, edx
+    call get_int
+    cmp eax, 5
+    jbe la_theme_ok
+    xor eax, eax
+la_theme_ok:
+    mov DWORD PTR [rbp-8], eax
+    lea rcx, QWORD PTR [k_view]
+    xor edx, edx
+    call get_int
+    and eax, 1
+    mov DWORD PTR [g_view], eax
+    lea rcx, QWORD PTR [k_tabs]
+    mov edx, 1
+    call get_int
+    cmp eax, 0
+    jne la_count_nonzero
+    mov eax, 1
+la_count_nonzero:
+    cmp eax, MAX_TABS
+    jbe la_count_ok
+    mov eax, MAX_TABS
+la_count_ok:
+    mov DWORD PTR [rbp-16], eax
+    mov ecx, DWORD PTR [rbp-8]
+    call set_theme
+    mov DWORD PTR [rbp-24], 0
+la_tab:
+    mov eax, DWORD PTR [rbp-24]
+    cmp eax, DWORD PTR [rbp-16]
+    jae la_tabs_done
+    call append_tab
+    mov ecx, eax
+    call load_tab_file
+    inc DWORD PTR [rbp-24]
+    jmp la_tab
+la_tabs_done:
+    lea rcx, QWORD PTR [k_active]
+    xor edx, edx
+    call get_int
+    cmp eax, DWORD PTR [g_nTabs]
+    jb la_active_ok
+    xor eax, eax
+la_active_ok:
+    mov ecx, eax
+    call activate
+    EPILOG
+load_all ENDP
 
 close_tab PROC FRAME
     PROLOG
@@ -339,6 +668,7 @@ ct_shifted:
 ct_keep:
     call activate
 ct_done:
+    call save_all
     EPILOG
 close_tab ENDP
 
@@ -354,6 +684,7 @@ next_tab PROC FRAME
     div DWORD PTR [g_nTabs]
     mov ecx, edx
     call activate
+    call save_all
 nx_done:
     EPILOG
 next_tab ENDP
@@ -510,9 +841,7 @@ mp_create:
     mov r9d, ENM_CHANGE
     call SendMessageW
 
-    mov ecx, DWORD PTR [g_theme]
-    call set_theme
-    call new_tab
+    call load_all
     jmp mp_zero
 
 mp_size:
@@ -636,13 +965,14 @@ mp_notify:
     call SendMessageW
     mov ecx, eax
     call activate
+    call save_all
     jmp mp_zero
 
 mp_timer:
     mov rcx, QWORD PTR [rbp-8]
     mov edx, IDT_AUTOSAVE
     call KillTimer
-    call sync_active
+    call save_all
     jmp mp_zero
 
 mp_focus:
@@ -651,6 +981,7 @@ mp_focus:
     jmp mp_zero
 
 mp_close:
+    call save_all
     mov rcx, QWORD PTR [rbp-8]
     call DestroyWindow
     jmp mp_zero
@@ -666,6 +997,7 @@ start PROC FRAME
     PROLOG
     call GetProcessHeap
     mov QWORD PTR [g_hHeap], rax
+    call storage_init
     xor ecx, ecx
     call GetModuleHandleW
     mov QWORD PTR [g_hInst], rax
