@@ -420,6 +420,19 @@ ts_loop:
     jmp ts_loop
 ts_done:
     mov rcx, QWORD PTR [rbp-8]
+    lea rdx, QWORD PTR [rbp-88]
+    call GetClientRect
+    mov eax, 3
+    call scale_px
+    mov edx, DWORD PTR [rbp-76]
+    sub edx, eax
+    mov DWORD PTR [rbp-84], edx
+    call palette_ptr
+    mov r8d, DWORD PTR [rax]
+    mov rcx, QWORD PTR [rbp-48]
+    lea rdx, QWORD PTR [rbp-88]
+    call fill_rect_color
+    mov rcx, QWORD PTR [rbp-8]
     mov rdx, QWORD PTR [rbp-48]
     call ReleaseDC
     mov eax, DWORD PTR [rbp-40]
